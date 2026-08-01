@@ -1,0 +1,42 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}{% if timeslot %}Edit Time Slot{% else %}Add Time Slot{% endif %} - KTS{% endblock %}
+{% block page_title %}{% if timeslot %}Edit Time Slot{% else %}Add Time Slot{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title">
+                <i class="bi bi-clock"></i>
+                {% if timeslot %}Edit {{ timeslot }}{% else %}New Time Slot{% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Day</label>
+                    {{ form.day }}
+                    {% if form.day.errors %}<div class="text-danger small mt-1">{{ form.day.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">Start Time</label>
+                        {{ form.start_time }}
+                        {% if form.start_time.errors %}<div class="text-danger small mt-1">{{ form.start_time.errors|join:", " }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">End Time</label>
+                        {{ form.end_time }}
+                        {% if form.end_time.errors %}<div class="text-danger small mt-1">{{ form.end_time.errors|join:", " }}</div>{% endif %}
+                    </div>
+                </div>
+                {% if form.non_field_errors %}<div class="text-danger small mb-3">{{ form.non_field_errors|join:", " }}</div>{% endif %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-check-lg me-1"></i> {% if timeslot %}Save Changes{% else %}Add Time Slot{% endif %}
+                    </button>
+                    <a href="{% url 'timeslots' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}{% if course %}Edit Course{% else %}Add Course{% endif %} - KTS{% endblock %}
+{% block page_title %}{% if course %}Edit Course{% else %}Add Course{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title">
+                <i class="bi bi-book{% if not course %}-half{% endif %}"></i>
+                {% if course %}Edit {{ course.code }}{% else %}New Course{% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Course Code</label>
+                    {{ form.code }}
+                    {% if form.code.errors %}<div class="text-danger small mt-1">{{ form.code.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Course Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Lecturer</label>
+                    {{ form.lecturer }}
+                    {% if form.lecturer.errors %}<div class="text-danger small mt-1">{{ form.lecturer.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Expected Students</label>
+                    {{ form.expected_students }}
+                    {% if form.expected_students.errors %}<div class="text-danger small mt-1">{{ form.expected_students.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-check-lg me-1"></i> {% if course %}Save Changes{% else %}Add Course{% endif %}
+                    </button>
+                    <a href="{% url 'courses' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

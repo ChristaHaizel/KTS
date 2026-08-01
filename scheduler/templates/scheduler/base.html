@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}KTS - KNUST Timetable System{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        body { background: #f0f4ff; min-height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(180deg, #05409E 0%, #032c6b 100%);
+            width: 250px;
+            position: fixed;
+            top: 0; left: 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            box-shadow: 4px 0 20px rgba(5,64,158,0.15);
+        }
+        .sidebar-brand {
+            padding: 24px 24px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.12);
+        }
+        .sidebar-brand .logo-text {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+        .sidebar-brand .logo-text span { color: #8fb4e3; }
+        .sidebar-brand .logo-sub {
+            font-size: 0.72rem;
+            color: rgba(255,255,255,0.55);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+        .sidebar-nav { padding: 16px 12px; flex: 1; }
+        .nav-section-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.4);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 12px 12px 6px;
+        }
+        .sidebar .nav-link {
+            color: rgba(255,255,255,0.75);
+            padding: 10px 14px;
+            border-radius: 10px;
+            margin-bottom: 2px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+        .sidebar .nav-link i { font-size: 1rem; width: 20px; }
+        .sidebar .nav-link:hover {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            transform: translateX(2px);
+        }
+        .sidebar .nav-link.active {
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .sidebar .nav-link.active i { color: #8fb4e3; }
+        .sidebar-footer {
+            padding: 16px 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-footer .nav-link {
+            color: rgba(255,255,255,0.6);
+            font-size: 0.85rem;
+        }
+        .sidebar-footer .nav-link:hover { color: #fff; }
+
+        /* Main content */
+        .main-wrap {
+            margin-left: 250px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .topbar {
+            background: #fff;
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e8edf5;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+        .topbar-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #05409E;
+            margin: 0;
+        }
+        .topbar-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.875rem;
+            color: #64748b;
+        }
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #05409E, #1560c4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+        .content-area { padding: 28px 32px; flex: 1; }
+
+        /* Stat cards */
+        .stat-card {
+            background: #fff;
+            border-radius: 16px;
+            padding: 22px 24px;
+            border: 1px solid #e8edf5;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(5,64,158,0.1); }
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            margin-bottom: 14px;
+        }
+        .stat-icon.blue { background: #eff6ff; color: #05409E; }
+        .stat-icon.green { background: #f0fdf4; color: #16a34a; }
+        .stat-icon.orange { background: #fff7ed; color: #ea580c; }
+        .stat-icon.red { background: #fef2f2; color: #dc2626; }
+        .stat-number { font-size: 2rem; font-weight: 700; color: #1e293b; line-height: 1; }
+        .stat-label { font-size: 0.82rem; color: #94a3b8; margin-top: 4px; font-weight: 500; }
+
+        /* Cards */
+        .kts-card {
+            background: #fff;
+            border-radius: 16px;
+            border: 1px solid #e8edf5;
+            padding: 24px;
+        }
+        .kts-card-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #05409E;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Buttons */
+        .btn-kts-primary {
+            background: linear-gradient(135deg, #05409E, #1560c4);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 20px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        .btn-kts-primary:hover {
+            background: linear-gradient(135deg, #033268, #0f4fa0);
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(5,64,158,0.3);
+        }
+        .btn-kts-outline {
+            background: #fff;
+            color: #05409E;
+            border: 1.5px solid #05409E;
+            border-radius: 10px;
+            padding: 10px 20px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        .btn-kts-outline:hover {
+            background: #eff6ff;
+            color: #05409E;
+        }
+
+        /* Alerts */
+        .alert { border-radius: 12px; border: none; font-size: 0.875rem; }
+        .alert-success { background: #f0fdf4; color: #15803d; }
+        .alert-danger { background: #fef2f2; color: #dc2626; }
+        .alert-warning { background: #fffbeb; color: #d97706; }
+
+        /* Timetable */
+        .timetable-table th {
+            background: #05409E;
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.82rem;
+            letter-spacing: 0.3px;
+            padding: 12px 14px;
+        }
+        .timetable-table td { padding: 8px 10px; vertical-align: top; }
+        .timetable-table tr:hover td { background: #f8faff; }
+        .time-cell {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #64748b;
+            white-space: nowrap;
+            width: 90px;
+        }
+        .entry-pill {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-left: 3px solid #05409E;
+            border-radius: 8px;
+            padding: 7px 10px;
+            margin-bottom: 4px;
+            font-size: 0.78rem;
+        }
+        .entry-pill .course-code { font-weight: 700; color: #05409E; }
+        .entry-pill .entry-meta { color: #64748b; font-size: 0.72rem; margin-top: 2px; }
+
+        /* Conflict badges */
+        .conflict-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .conflict-badge.high { background: #fef2f2; color: #dc2626; }
+        .conflict-badge.medium { background: #fff7ed; color: #ea580c; }
+        .conflict-badge.low { background: #fffbeb; color: #d97706; }
+        .conflict-item {
+            background: #fff;
+            border: 1px solid #e8edf5;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 10px;
+            transition: box-shadow 0.2s;
+        }
+        .conflict-item:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+
+        /* Form controls */
+        .form-control, .form-select {
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            font-size: 0.875rem;
+            padding: 9px 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #05409E;
+            box-shadow: 0 0 0 3px rgba(5,64,158,0.1);
+        }
+        .form-label { font-weight: 500; font-size: 0.85rem; color: #374151; margin-bottom: 6px; }
+
+        /* Reschedule cards */
+        .request-card {
+            background: #fff;
+            border: 1px solid #e8edf5;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 10px;
+        }
+        .request-card .course-tag {
+            font-weight: 700;
+            color: #05409E;
+            font-size: 0.9rem;
+        }
+        .request-card .meta { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+
+        /* Quick action buttons */
+        .action-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            border: 1.5px solid #e2e8f0;
+            background: #fff;
+            color: #1e293b;
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+            margin-bottom: 10px;
+        }
+        .action-btn:hover {
+            border-color: #05409E;
+            color: #05409E;
+            background: #eff6ff;
+            transform: translateX(3px);
+        }
+        .action-btn .action-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .action-btn.primary-action {
+            background: linear-gradient(135deg, #05409E, #1560c4);
+            border-color: transparent;
+            color: #fff;
+        }
+        .action-btn.primary-action:hover {
+            background: linear-gradient(135deg, #033268, #0f4fa0);
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 4px 14px rgba(5,64,158,0.3);
+        }
+        .action-btn.primary-action .action-icon { background: rgba(255,255,255,0.2); color: #fff; }
+
+        /* Data tables (Lecturers, Courses, ...) */
+        .data-table { width: 100%; margin-bottom: 0; font-size: 0.875rem; }
+        .data-table thead th {
+            padding: 14px 20px;
+            color: #64748b;
+            font-weight: 600;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            background: #f8faff;
+            border-bottom: 1px solid #eef2f9;
+        }
+        .data-table tbody td {
+            padding: 14px 20px;
+            vertical-align: middle;
+            border-top: 1px solid #f1f5f9;
+            color: #475569;
+        }
+        .data-table tbody tr:hover td { background: #f8faff; }
+        .data-table .cell-primary { font-weight: 600; color: #1e293b; }
+        .data-table .cell-accent { font-weight: 700; color: #05409E; }
+        .data-table .empty-state {
+            text-align: center;
+            padding: 56px 20px;
+            color: #94a3b8;
+        }
+        .data-table .empty-state i { font-size: 2rem; display: block; margin-bottom: 10px; color: #cbd5e1; }
+
+        .row-actions { display: flex; gap: 8px; }
+        .icon-btn {
+            width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9px;
+            border: 1.5px solid #e2e8f0;
+            background: #fff;
+            color: #94a3b8;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+        .icon-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.08); }
+        .icon-btn.icon-edit:hover { border-color: #05409E; color: #05409E; background: #eff6ff; }
+        .icon-btn.icon-delete:hover { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
+
+        /* Multi-select checkbox grid (e.g. courses on a Student Group) */
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 8px;
+            max-height: 260px;
+            overflow-y: auto;
+            padding: 14px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8faff;
+        }
+        .checkbox-grid .form-check-empty { color: #94a3b8; font-size: 0.85rem; }
+        .checkbox-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #374151;
+            cursor: pointer;
+        }
+        .checkbox-pill input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #05409E;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        /* Day badges (Time Slots) */
+        .day-badge {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: #eff6ff;
+            color: #05409E;
+        }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <div class="sidebar-brand">
+        <div class="logo-text">KTS <span>●</span></div>
+        <div class="logo-sub">KNUST Timetable System</div>
+    </div>
+    <div class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <a href="{% url 'dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+            <i class="bi bi-grid-1x2"></i> Dashboard
+        </a>
+        <a href="{% url 'timetable' %}" class="nav-link {% if request.resolver_match.url_name == 'timetable' %}active{% endif %}">
+            <i class="bi bi-calendar3"></i> Timetable
+        </a>
+        <div class="nav-section-label">Data</div>
+        <a href="{% url 'lecturers' %}" class="nav-link {% if request.resolver_match.url_name == 'lecturers' or request.resolver_match.url_name == 'lecturer_add' or request.resolver_match.url_name == 'lecturer_edit' %}active{% endif %}">
+            <i class="bi bi-person-badge"></i> Lecturers
+        </a>
+        <a href="{% url 'courses' %}" class="nav-link {% if request.resolver_match.url_name == 'courses' or request.resolver_match.url_name == 'course_add' or request.resolver_match.url_name == 'course_edit' %}active{% endif %}">
+            <i class="bi bi-book"></i> Courses
+        </a>
+        <a href="{% url 'rooms' %}" class="nav-link {% if request.resolver_match.url_name == 'rooms' or request.resolver_match.url_name == 'room_add' or request.resolver_match.url_name == 'room_edit' %}active{% endif %}">
+            <i class="bi bi-door-open"></i> Rooms
+        </a>
+        <a href="{% url 'studentgroups' %}" class="nav-link {% if request.resolver_match.url_name == 'studentgroups' or request.resolver_match.url_name == 'studentgroup_add' or request.resolver_match.url_name == 'studentgroup_edit' %}active{% endif %}">
+            <i class="bi bi-people"></i> Student Groups
+        </a>
+        <a href="{% url 'timeslots' %}" class="nav-link {% if request.resolver_match.url_name == 'timeslots' or request.resolver_match.url_name == 'timeslot_add' or request.resolver_match.url_name == 'timeslot_edit' %}active{% endif %}">
+            <i class="bi bi-clock"></i> Time Slots
+        </a>
+        <div class="nav-section-label">Tools</div>
+        <a href="{% url 'conflicts' %}" class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}">
+            <i class="bi bi-exclamation-triangle"></i> Conflicts
+        </a>
+        <a href="{% url 'generate' %}" class="nav-link {% if request.resolver_match.url_name == 'generate' %}active{% endif %}">
+            <i class="bi bi-cpu"></i> Generate
+        </a>
+        <a href="{% url 'reschedule' %}" class="nav-link {% if request.resolver_match.url_name == 'reschedule' %}active{% endif %}">
+            <i class="bi bi-arrow-left-right"></i> Reschedule
+        </a>
+        <div class="nav-section-label">System</div>
+        <a href="{% url 'admin:index' %}" class="nav-link">
+            <i class="bi bi-shield-lock"></i> Admin Panel
+        </a>
+    </div>
+    <div class="sidebar-footer">
+        <a href="{% url 'logout' %}" class="nav-link">
+            <i class="bi bi-box-arrow-right"></i> Sign Out
+        </a>
+    </div>
+</div>
+
+<div class="main-wrap">
+    <div class="topbar">
+        <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
+        <div class="topbar-user">
+            <div class="user-avatar">{{ request.user.username|first|upper }}</div>
+            <span>{{ request.user.username }}</span>
+        </div>
+    </div>
+    <div class="content-area">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show mb-4" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+        {% block content %}{% endblock %}
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

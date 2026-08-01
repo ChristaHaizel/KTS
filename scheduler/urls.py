@@ -1,0 +1,32 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.dashboard, name='dashboard'),
+    path('timetable/', views.timetable_view, name='timetable'),
+    path('conflicts/', views.conflict_view, name='conflicts'),
+    path('generate/', views.generate_timetable, name='generate'),
+    path('reschedule/', views.reschedule_request, name='reschedule'),
+    path('reschedule/<int:pk>/approve/', views.approve_reschedule, name='approve_reschedule'),
+    path('reschedule/<int:pk>/reject/', views.reject_reschedule, name='reject_reschedule'),
+    path('lecturers/', views.lecturer_list, name='lecturers'),
+    path('lecturers/add/', views.lecturer_edit, name='lecturer_add'),
+    path('lecturers/<int:pk>/edit/', views.lecturer_edit, name='lecturer_edit'),
+    path('lecturers/<int:pk>/delete/', views.lecturer_delete, name='lecturer_delete'),
+    path('courses/', views.course_list, name='courses'),
+    path('courses/add/', views.course_edit, name='course_add'),
+    path('courses/<int:pk>/edit/', views.course_edit, name='course_edit'),
+    path('courses/<int:pk>/delete/', views.course_delete, name='course_delete'),
+    path('rooms/', views.room_list, name='rooms'),
+    path('rooms/add/', views.room_edit, name='room_add'),
+    path('rooms/<int:pk>/edit/', views.room_edit, name='room_edit'),
+    path('rooms/<int:pk>/delete/', views.room_delete, name='room_delete'),
+    path('student-groups/', views.studentgroup_list, name='studentgroups'),
+    path('student-groups/add/', views.studentgroup_edit, name='studentgroup_add'),
+    path('student-groups/<int:pk>/edit/', views.studentgroup_edit, name='studentgroup_edit'),
+    path('student-groups/<int:pk>/delete/', views.studentgroup_delete, name='studentgroup_delete'),
+    path('timeslots/', views.timeslot_list, name='timeslots'),
+    path('timeslots/add/', views.timeslot_edit, name='timeslot_add'),
+    path('timeslots/<int:pk>/edit/', views.timeslot_edit, name='timeslot_edit'),
+    path('timeslots/<int:pk>/delete/', views.timeslot_delete, name='timeslot_delete'),
+]

@@ -1,0 +1,43 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}{% if group %}Edit Student Group{% else %}Add Student Group{% endif %} - KTS{% endblock %}
+{% block page_title %}{% if group %}Edit Student Group{% else %}Add Student Group{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="kts-card">
+            <div class="kts-card-title">
+                <i class="bi bi-people{% if not group %}-fill{% endif %}"></i>
+                {% if group %}Edit {{ group.name }}{% else %}New Student Group{% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Group Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Courses</label>
+                    <div class="checkbox-grid">
+                        {% for checkbox in form.courses %}
+                            <label class="checkbox-pill">
+                                {{ checkbox.tag }}
+                                <span>{{ checkbox.choice_label }}</span>
+                            </label>
+                        {% empty %}
+                            <div class="form-check-empty">No courses available yet — add some first.</div>
+                        {% endfor %}
+                    </div>
+                    {% if form.courses.errors %}<div class="text-danger small mt-1">{{ form.courses.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-check-lg me-1"></i> {% if group %}Save Changes{% else %}Add Student Group{% endif %}
+                    </button>
+                    <a href="{% url 'studentgroups' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

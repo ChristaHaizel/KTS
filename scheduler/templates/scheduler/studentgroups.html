@@ -1,0 +1,56 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Student Groups - KTS{% endblock %}
+{% block page_title %}Student Groups{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div style="color:#64748b; font-size:0.875rem;">{{ groups|length }} student group(s) on record</div>
+    <a href="{% url 'studentgroup_add' %}" class="btn btn-kts-primary">
+        <i class="bi bi-plus-lg me-1"></i> Add Student Group
+    </a>
+</div>
+
+<div class="kts-card" style="padding:0; overflow:hidden;">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Courses</th>
+                    <th style="width:100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in groups %}
+                <tr>
+                    <td class="cell-primary">{{ group.name }}</td>
+                    <td>
+                        {% for course in group.courses.all %}
+                            <span class="day-badge" style="margin:0 4px 4px 0;">{{ course.code }}</span>
+                        {% empty %}
+                            <span style="color:#94a3b8;">No courses assigned</span>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        <div class="row-actions">
+                            <a href="{% url 'studentgroup_edit' group.pk %}" class="icon-btn icon-edit" title="Edit {{ group.name }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            <a href="{% url 'studentgroup_delete' group.pk %}" class="icon-btn icon-delete" title="Delete {{ group.name }}">
+                                <i class="bi bi-trash"></i>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="empty-state">
+                        <i class="bi bi-people"></i>
+                        No student groups yet. Click "Add Student Group" to create one.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

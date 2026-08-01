@@ -1,0 +1,140 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Dashboard - KTS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="bi bi-book"></i></div>
+            <div class="stat-number">{{ total_courses }}</div>
+            <div class="stat-label">Total Courses</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="bi bi-door-open"></i></div>
+            <div class="stat-number">{{ total_rooms }}</div>
+            <div class="stat-label">Rooms Available</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="bi bi-calendar-check"></i></div>
+            <div class="stat-number">{{ total_entries }}</div>
+            <div class="stat-label">Scheduled Classes</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-icon red"><i class="bi bi-exclamation-circle"></i></div>
+            <div class="stat-number">{{ conflict_count }}</div>
+            <div class="stat-label">Active Conflicts</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-lightning-charge"></i> Quick Actions</div>
+            <a href="{% url 'generate' %}" class="action-btn primary-action">
+                <div class="action-icon"><i class="bi bi-cpu"></i></div>
+                <div>
+                    <div>Generate New Timetable</div>
+                    <div style="font-size:0.75rem; opacity:0.8; font-weight:400;">Run the Genetic Algorithm</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'conflicts' %}" class="action-btn">
+                <div class="action-icon" style="background:#fef2f2; color:#dc2626;"><i class="bi bi-exclamation-triangle"></i></div>
+                <div>
+                    <div>View Conflict Report</div>
+                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:400;">{{ conflict_count }} active conflict(s)</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'reschedule' %}" class="action-btn">
+                <div class="action-icon" style="background:#f0fdf4; color:#16a34a;"><i class="bi bi-arrow-left-right"></i></div>
+                <div>
+                    <div>Reschedule Requests</div>
+                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:400;">{{ pending_requests }} pending request(s)</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'admin:index' %}" class="action-btn">
+                <div class="action-icon" style="background:#f5f3ff; color:#7c3aed;"><i class="bi bi-shield-lock"></i></div>
+                <div>
+                    <div>Manage Data</div>
+                    <div style="font-size:0.75rem; color:#94a3b8; font-weight:400;">Courses, Rooms, Lecturers...</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-bar-chart"></i> System Summary</div>
+            {% for label, value, color in summary_rows %}
+            {% empty %}
+            <table class="table table-sm" style="font-size:0.875rem;">
+                <tbody>
+                    <tr>
+                        <td style="color:#64748b; border:none; padding:10px 0;">Total Courses</td>
+                        <td style="font-weight:600; border:none; text-align:right;">{{ total_courses }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Total Rooms</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_rooms }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Total Lecturers</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_lecturers }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Scheduled Classes</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_entries }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Pending Reschedule Requests</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ pending_requests }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Active Conflicts</td>
+                        <td style="font-weight:600; color:#dc2626; border-top:1px solid #f1f5f9; text-align:right;">{{ conflict_count }}</td>
+                    </tr>
+                </tbody>
+            </table>
+            {% endfor %}
+            <table class="table table-sm" style="font-size:0.875rem;">
+                <tbody>
+                    <tr>
+                        <td style="color:#64748b; border:none; padding:10px 0;">Total Courses</td>
+                        <td style="font-weight:600; border:none; text-align:right;">{{ total_courses }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Total Rooms</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_rooms }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Total Lecturers</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_lecturers }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Scheduled Classes</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ total_entries }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Pending Reschedule Requests</td>
+                        <td style="font-weight:600; border-top:1px solid #f1f5f9; text-align:right;">{{ pending_requests }}</td>
+                    </tr>
+                    <tr>
+                        <td style="color:#64748b; border-top:1px solid #f1f5f9; padding:10px 0;">Active Conflicts</td>
+                        <td style="font-weight:600; color:#dc2626; border-top:1px solid #f1f5f9; text-align:right;">{{ conflict_count }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

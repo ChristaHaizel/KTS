@@ -1,0 +1,50 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Rooms - KTS{% endblock %}
+{% block page_title %}Rooms{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div style="color:#64748b; font-size:0.875rem;">{{ rooms|length }} room(s) on record</div>
+    <a href="{% url 'room_add' %}" class="btn btn-kts-primary">
+        <i class="bi bi-plus-lg me-1"></i> Add Room
+    </a>
+</div>
+
+<div class="kts-card" style="padding:0; overflow:hidden;">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Capacity</th>
+                    <th style="width:100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr>
+                    <td class="cell-primary">{{ room.name }}</td>
+                    <td>{{ room.capacity }} seats</td>
+                    <td>
+                        <div class="row-actions">
+                            <a href="{% url 'room_edit' room.pk %}" class="icon-btn icon-edit" title="Edit {{ room.name }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            <a href="{% url 'room_delete' room.pk %}" class="icon-btn icon-delete" title="Delete {{ room.name }}">
+                                <i class="bi bi-trash"></i>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="empty-state">
+                        <i class="bi bi-door-closed"></i>
+                        No rooms yet. Click "Add Room" to create one.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

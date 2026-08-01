@@ -1,0 +1,81 @@
+{% extends 'scheduler/base.html' %}
+{% load scheduler_tags %}
+{% block title %}Timetable - KTS{% endblock %}
+{% block page_title %}Timetable View{% endblock %}
+{% block content %}
+<div class="kts-card mb-4">
+    <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label">Filter by Student Group</label>
+            <select name="group" class="form-select">
+                <option value="">All Groups</option>
+                {% for g in groups %}
+                    <option value="{{ g.id }}" {% if selected_group == g.id|stringformat:"s" %}selected{% endif %}>{{ g.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Filter by Lecturer</label>
+            <select name="lecturer" class="form-select">
+                <option value="">All Lecturers</option>
+                {% for l in lecturers %}
+                    <option value="{{ l.id }}" {% if selected_lecturer == l.id|stringformat:"s" %}selected{% endif %}>{{ l.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-kts-primary w-100">Filter</button>
+        </div>
+        <div class="col-md-2">
+            <a href="{% url 'timetable' %}" class="btn btn-kts-outline w-100">Clear</a>
+        </div>
+    </form>
+</div>
+
+<div class="kts-card" style="padding:0; overflow:hidden;">
+    <div class="table-responsive">
+        <table class="table table-bordered mb-0 timetable-table">
+            <thead>
+                <tr>
+                    <th style="width:90px;">Time</th>
+                    {% for day in days %}
+                        <th>{{ day_names|get_item:day }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for slot in timeslots %}
+                <tr>
+                    <td class="time-cell">
+                        {{ slot.start_time|time:"H:i" }}<br>
+                        <span style="color:#94a3b8;">{{ slot.end_time|time:"H:i" }}</span>
+                    </td>
+                    {% for day in days %}
+                    <td>
+                        {% for entry in entries_list %}
+                            {% if entry.timeslot.id == slot.id and entry.timeslot.day == day %}
+                            <div class="entry-pill">
+                                <div class="course-code">{{ entry.course.code }}</div>
+                                <div class="entry-meta">
+                                    <i class="bi bi-geo-alt"></i> {{ entry.room.name }}<br>
+                                    <i class="bi bi-people"></i> {{ entry.student_group.name }}
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-5 text-muted">
+                        <i class="bi bi-calendar-x" style="font-size:2rem; display:block; margin-bottom:10px;"></i>
+                        No timetable entries yet. Use Generate to create one.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

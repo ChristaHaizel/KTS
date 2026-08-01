@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Sign In - KTS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        body {
+            background: linear-gradient(135deg, #032c6b 0%, #05409E 50%, #1560c4 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-wrap {
+            display: flex;
+            width: 860px;
+            min-height: 480px;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+        }
+        .login-left {
+            flex: 1;
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(10px);
+            padding: 48px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-right: 1px solid rgba(255,255,255,0.12);
+        }
+        .login-left .brand { font-size: 2rem; font-weight: 700; color: #fff; margin-bottom: 8px; }
+        .login-left .brand span { color: #8fb4e3; }
+        .login-left .tagline { color: rgba(255,255,255,0.65); font-size: 0.9rem; margin-bottom: 32px; }
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.85rem;
+            margin-bottom: 14px;
+        }
+        .feature-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+        .login-right {
+            width: 380px;
+            background: #fff;
+            padding: 48px 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .login-right h4 { font-weight: 700; color: #05409E; margin-bottom: 6px; }
+        .login-right .sub { color: #94a3b8; font-size: 0.875rem; margin-bottom: 28px; }
+        .form-control {
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            padding: 10px 14px;
+            font-size: 0.875rem;
+            transition: all 0.2s;
+        }
+        .form-control:focus {
+            border-color: #05409E;
+            box-shadow: 0 0 0 3px rgba(5,64,158,0.1);
+        }
+        .form-label { font-weight: 500; font-size: 0.85rem; color: #374151; margin-bottom: 6px; }
+        .btn-login {
+            background: linear-gradient(135deg, #05409E, #1560c4);
+            border: none;
+            color: #fff;
+            border-radius: 10px;
+            padding: 12px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        .btn-login:hover {
+            background: linear-gradient(135deg, #033268, #0f4fa0);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(5,64,158,0.3);
+        }
+    </style>
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-left">
+        <div class="brand">KTS <span>●</span></div>
+        <div class="tagline">KNUST Timetable System — Department of Computer Science</div>
+        <div class="feature-item">
+            <div class="feature-icon">🧬</div>
+            <div>Genetic Algorithm timetable generation</div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">⚡</div>
+            <div>Real-time conflict detection</div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">🔄</div>
+            <div>Lecturer rescheduling workflow</div>
+        </div>
+        <div class="feature-item">
+            <div class="feature-icon">🏫</div>
+            <div>Smart room-capacity matching</div>
+        </div>
+    </div>
+    <div class="login-right">
+        <h4>Welcome back</h4>
+        <div class="sub">Sign in to manage your timetable</div>
+        {% if form.errors %}
+            <div class="alert alert-danger" style="border-radius:10px; font-size:0.85rem; background:#fef2f2; color:#dc2626; border:none; margin-bottom:20px;">
+                Invalid username or password. Please try again.
+            </div>
+        {% endif %}
+        <form method="post">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label">Username</label>
+                <input type="text" name="username" class="form-control" autofocus placeholder="Enter your username">
+            </div>
+            <div class="mb-4">
+                <label class="form-label">Password</label>
+                <input type="password" name="password" class="form-control" placeholder="Enter your password">
+            </div>
+            <button type="submit" class="btn-login">Sign In</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

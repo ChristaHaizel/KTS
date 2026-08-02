@@ -3,10 +3,12 @@ services:
     name: kts
     runtime: python
     plan: free
-    # Migrations belong in preDeployCommand, but that is a paid-plan feature on
-    # Render. On the free tier they run in the build step instead, which works
-    # because the build has network access and the service environment variables.
-    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    # Migrations belong in preDeployCommand, and the superuser would normally be
+    # created from a shell - both are paid-plan features on Render. On the free
+    # tier they run in the build step instead, which works because the build has
+    # network access and the service environment variables. ensure_superuser is
+    # idempotent, so repeat deploys leave the existing account alone.
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py ensure_superuser"
     startCommand: "gunicorn kts.wsgi:application"
     envVars:
       - key: SECRET_KEY

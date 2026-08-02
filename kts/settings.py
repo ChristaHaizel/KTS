@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import re
 from pathlib import Path
 
 import dj_database_url
@@ -90,9 +91,36 @@ WSGI_APPLICATION = 'kts.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+def _clean_database_url(raw):
+    """Normalise a DATABASE_URL pasted into a hosting dashboard.
+
+    A stray newline, surrounding quotes, or the `psql '...'` wrapper that some
+    providers offer alongside the raw string all make the scheme unparseable,
+    and the resulting deploy failure points at the parser rather than the paste.
+    """
+    url = (raw or '').strip()
+    if url.startswith('psql '):
+        url = url[len('psql '):].strip()
+    if len(url) >= 2 and url[0] == url[-1] and url[0] in '"\'':
+        url = url[1:-1].strip()
+    return url
+
+
+DATABASE_URL = _clean_database_url(os.environ.get('DATABASE_URL'))
+
+# Fail with a message that names the actual problem. The value is never echoed:
+# it carries the database password and this runs straight into the build log.
+if DATABASE_URL and not re.match(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://', DATABASE_URL):
+    raise RuntimeError(
+        'DATABASE_URL is malformed: it must begin with a scheme such as '
+        '"postgresql://". Copy the plain connection string from your database '
+        'provider - not the "psql" command, a settings snippet, or a partial '
+        'selection - and check there is no leading space or newline.'
+    )
+
 DATABASES = {
-    'default': dj_database_url.config(
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+    'default': dj_database_url.parse(
+        DATABASE_URL or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
         conn_max_age=600,
     )
 }

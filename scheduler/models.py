@@ -52,7 +52,13 @@ class TimetableEntry(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ['room', 'timeslot']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['room', 'timeslot'],
+                condition=models.Q(is_active=True),
+                name='unique_active_room_timeslot',
+            )
+        ]
 
     def __str__(self):
         return f"{self.course.code} | {self.room.name} | {self.timeslot}"

@@ -5,18 +5,17 @@
 <div class="row justify-content-center">
     <div class="col-md-7">
         <div class="kts-card">
-            <div style="text-align:center; margin-bottom:28px;">
-                <div style="width:72px; height:72px; background:linear-gradient(135deg,#eff6ff,#dbeafe); border-radius:20px; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
-                    <i class="bi bi-cpu" style="font-size:2rem; color:#05409E;"></i>
+            <div class="generate-header">
+                <div class="generate-icon-tile">
+                    <i class="bi bi-cpu"></i>
                 </div>
-                <h5 style="font-weight:700; color:#05409E;">Genetic Algorithm Generator</h5>
-                <p style="color:#64748b; font-size:0.875rem; margin:0;">Automatically generates a conflict-free timetable by evolving candidate schedules over multiple generations.</p>
+                <h5 class="generate-title">Genetic Algorithm Generator</h5>
+                <p class="generate-lede">Automatically generates a conflict-free timetable by evolving candidate schedules over multiple generations.</p>
             </div>
 
-            <div style="background:#f8faff; border-radius:12px; padding:16px 20px; margin-bottom:20px;">
-                <div style="font-size:0.82rem; font-weight:600; color:#05409E; margin-bottom:10px;">What the algorithm guarantees:</div>
-                {% for item in "1234" %}{% endfor %}
-                <div style="font-size:0.82rem; color:#475569; display:flex; flex-direction:column; gap:6px;">
+            <div class="generate-guarantees">
+                <div class="generate-guarantees-title">What the algorithm guarantees:</div>
+                <div class="generate-guarantees-list">
                     <div><i class="bi bi-check-circle-fill text-success me-2"></i>No lecturer double-booked at the same time</div>
                     <div><i class="bi bi-check-circle-fill text-success me-2"></i>No room assigned to two classes simultaneously</div>
                     <div><i class="bi bi-check-circle-fill text-success me-2"></i>No student group with overlapping classes</div>
@@ -24,22 +23,28 @@
                 </div>
             </div>
 
-            <div class="alert alert-warning" style="font-size:0.82rem;">
+            <div class="alert alert-warning generate-note">
                 <i class="bi bi-info-circle me-2"></i>
-                Make sure you have added <strong>Courses, Rooms, Time Slots and Student Groups</strong> in the Admin Panel before generating. Any existing timetable will be replaced.
+                Make sure you have added <strong>Courses, Rooms, Time Slots and Student Groups</strong> before generating. Any existing timetable will be replaced.
             </div>
 
-            <form method="post">
+            <form method="post" id="generate-form">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-kts-primary w-100 py-3" style="font-size:1rem;" 
-                    onclick="this.innerHTML='<span class=\'spinner-border spinner-border-sm me-2\'></span>Running Algorithm...'; this.disabled=true; this.form.submit();">
+                <button type="submit" class="btn btn-kts-primary w-100 py-3 generate-submit" id="generate-submit">
                     <i class="bi bi-play-circle me-2"></i> Generate Timetable
                 </button>
             </form>
             <div class="text-center mt-3">
-                <a href="{% url 'timetable' %}" style="font-size:0.85rem; color:#94a3b8; text-decoration:none;">Cancel and go back to timetable</a>
+                <a href="{% url 'timetable' %}" class="generate-cancel">Cancel and go back to timetable</a>
             </div>
         </div>
     </div>
 </div>
+<script>
+    document.getElementById('generate-form').addEventListener('submit', function () {
+        var button = document.getElementById('generate-submit');
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running Algorithm...';
+        button.disabled = true;
+    });
+</script>
 {% endblock %}

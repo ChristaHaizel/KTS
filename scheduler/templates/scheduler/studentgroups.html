@@ -3,13 +3,13 @@
 {% block page_title %}Student Groups{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div style="color:#64748b; font-size:0.875rem;">{{ groups|length }} student group(s) on record</div>
+    <div class="record-count">{{ groups|length }} student group(s) on record</div>
     <a href="{% url 'studentgroup_add' %}" class="btn btn-kts-primary">
         <i class="bi bi-plus-lg me-1"></i> Add Student Group
     </a>
 </div>
 
-<div class="kts-card" style="padding:0; overflow:hidden;">
+<div class="kts-card flush">
     <div class="table-responsive">
         <table class="data-table">
             <thead>
@@ -25,9 +25,9 @@
                     <td class="cell-primary">{{ group.name }}</td>
                     <td>
                         {% for course in group.courses.all %}
-                            <span class="day-badge" style="margin:0 4px 4px 0;">{{ course.code }}</span>
+                            <span class="day-badge badge-spaced">{{ course.code }}</span>
                         {% empty %}
-                            <span style="color:#94a3b8;">No courses assigned</span>
+                            <span class="text-faint">No courses assigned</span>
                         {% endfor %}
                     </td>
                     <td>

@@ -3,8 +3,8 @@
 {% block page_title %}Conflict Detection Report{% endblock %}
 {% block content %}
 {% if conflicts %}
-<div class="alert alert-danger d-flex align-items-center gap-3 mb-4" style="border-radius:12px;">
-    <i class="bi bi-exclamation-triangle-fill" style="font-size:1.3rem;"></i>
+<div class="alert alert-danger d-flex align-items-center gap-3 mb-4">
+    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
     <div><strong>{{ conflicts|length }} conflict(s) detected</strong> — review and resolve them below.</div>
 </div>
 {% for conflict in conflicts %}
@@ -12,19 +12,19 @@
     <div class="d-flex align-items-start gap-3">
         <span class="conflict-badge {{ conflict.severity }}">{{ conflict.severity }}</span>
         <div>
-            <div style="font-weight:600; color:#1e293b; font-size:0.9rem;">{{ conflict.type }}</div>
-            <div style="color:#64748b; font-size:0.85rem; margin-top:4px;">{{ conflict.description }}</div>
+            <div class="conflict-type">{{ conflict.type }}</div>
+            <div class="conflict-desc">{{ conflict.description }}</div>
         </div>
     </div>
 </div>
 {% endfor %}
 {% else %}
 <div class="kts-card text-center py-5">
-    <div style="width:72px; height:72px; background:#f0fdf4; border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
-        <i class="bi bi-check-circle-fill" style="font-size:2rem; color:#16a34a;"></i>
+    <div class="empty-icon-circle success">
+        <i class="bi bi-check-circle-fill"></i>
     </div>
-    <h5 style="color:#15803d; font-weight:600;">No conflicts detected</h5>
-    <p style="color:#94a3b8; font-size:0.875rem;">The current timetable is completely conflict-free.</p>
+    <h5 class="empty-title success">No conflicts detected</h5>
+    <p class="empty-lede">The current timetable is completely conflict-free.</p>
     <a href="{% url 'timetable' %}" class="btn btn-kts-primary mt-2">View Timetable</a>
 </div>
 {% endif %}

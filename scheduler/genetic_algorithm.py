@@ -1,22 +1,35 @@
 import random
 from django.db import transaction
-from .models import Course, Room, TimeSlot, StudentGroup, TimetableEntry
+from .models import Room, TimeSlot, StudentGroup, TimetableEntry
+
+POPULATION_SIZE = 30
+GENERATIONS = 120
+STAGNATION_LIMIT = 25
 
 def run_genetic_algorithm():
-    courses = list(Course.objects.all().select_related('lecturer'))
+    # A gene is one (group, course) enrollment pair, not one course. A course taken by
+    # two groups needs two scheduled classes; a group must never be given a course it
+    # is not enrolled in.
+    enrollments = [
+        (group, course)
+        for group in StudentGroup.objects.prefetch_related('courses__lecturer')
+        for course in group.courses.all()
+    ]
     rooms = list(Room.objects.all())
     timeslots = list(TimeSlot.objects.all())
-    groups = list(StudentGroup.objects.all())
 
-    if not courses or not rooms or not timeslots or not groups:
-        return {'success': False, 'message': 'Please add Courses, Rooms, Time Slots and Student Groups first.'}
+    if not enrollments or not rooms or not timeslots:
+        return {
+            'success': False,
+            'message': 'Add Rooms, Time Slots, and at least one Student Group '
+                       'with courses assigned before generating.',
+        }
 
     def create_individual():
         individual = []
         used_slots = set()
-        for i, course in enumerate(courses):
+        for group, course in enrollments:
             suitable_rooms = [r for r in rooms if r.capacity >= course.expected_students] or rooms
-            group = groups[i % len(groups)]
             attempts = 0
             while attempts < 100:
                 room = random.choice(suitable_rooms)
@@ -84,22 +97,34 @@ def run_genetic_algorithm():
                     attempts += 1
         return individual
 
-    POPULATION_SIZE = 50
-    GENERATIONS = 300
     population = [create_individual() for _ in range(POPULATION_SIZE)]
 
     best = None
     best_fitness = 0
+    stagnant = 0
 
     for generation in range(GENERATIONS):
-        scored = sorted(population, key=fitness, reverse=True)
-        top_fitness = fitness(scored[0])
+        # Score once per individual per generation. Calling fitness() as sorted()'s key
+        # re-evaluates the whole population every comparison, which is what made this
+        # slow enough to blow the HTTP timeout on real data.
+        scored = sorted(
+            ((fitness(ind), ind) for ind in population),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        top_fitness, top_individual = scored[0]
+
         if top_fitness > best_fitness:
             best_fitness = top_fitness
-            best = scored[0]
-        if top_fitness == 1.0:
+            best = top_individual
+            stagnant = 0
+        else:
+            stagnant += 1
+
+        if top_fitness == 1.0 or stagnant >= STAGNATION_LIMIT:
             break
-        survivors = scored[:POPULATION_SIZE // 2]
+
+        survivors = [ind for _, ind in scored[:POPULATION_SIZE // 2]]
         children = []
         while len(children) < POPULATION_SIZE // 2:
             p1, p2 = random.sample(survivors, 2)
@@ -111,7 +136,7 @@ def run_genetic_algorithm():
     if best is None:
         return {'success': False, 'message': 'Algorithm failed to produce a result.'}
 
-    # Deduplicate before saving — no two entries share the same room+timeslot
+    # Deduplicate before saving — no two active entries may share the same room+timeslot
     seen = set()
     clean_best = []
     for gene in best:
@@ -119,6 +144,8 @@ def run_genetic_algorithm():
         if key not in seen:
             seen.add(key)
             clean_best.append(gene)
+
+    dropped = len(best) - len(clean_best)
 
     try:
         with transaction.atomic():
@@ -133,6 +160,13 @@ def run_genetic_algorithm():
                     is_active=True
                 )
                 created += 1
-        return {'success': True, 'entries_created': created}
+        return {
+            'success': True,
+            'entries_created': created,
+            'dropped': dropped,
+            'fitness': best_fitness,
+            'message': (f'{dropped} class(es) could not be placed — add more rooms '
+                        f'or time slots.') if dropped else '',
+        }
     except Exception as e:
         return {'success': False, 'message': str(e)}

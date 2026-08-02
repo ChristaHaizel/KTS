@@ -27,7 +27,7 @@
                     </select>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">New Room <span style="color:#94a3b8; font-weight:400;">(optional)</span></label>
+                    <label class="form-label">New Room <span class="text-faint">(optional)</span></label>
                     <select name="room" class="form-select">
                         <option value="">Keep current room</option>
                         {% for room in rooms %}
@@ -57,23 +57,31 @@
                                 <i class="bi bi-arrow-right"></i>
                                 Requested slot: <strong>{{ req.requested_timeslot }}</strong>
                             </div>
-                            <div class="meta mt-1" style="color:#94a3b8;">{{ req.reason }}</div>
+                            <div class="meta faint mt-1">{{ req.reason }}</div>
                         </div>
+                        {% if is_admin %}
                         <div class="d-flex gap-2 ms-3 flex-shrink-0">
-                            <a href="{% url 'approve_reschedule' req.pk %}" class="btn btn-sm" style="background:#f0fdf4; color:#16a34a; border:1.5px solid #bbf7d0; border-radius:8px; font-size:0.8rem; font-weight:500;">
-                                <i class="bi bi-check-lg me-1"></i>Approve
-                            </a>
-                            <a href="{% url 'reject_reschedule' req.pk %}" class="btn btn-sm" style="background:#fef2f2; color:#dc2626; border:1.5px solid #fecaca; border-radius:8px; font-size:0.8rem; font-weight:500;">
-                                <i class="bi bi-x-lg me-1"></i>Reject
-                            </a>
+                            <form method="post" action="{% url 'approve_reschedule' req.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-approve">
+                                    <i class="bi bi-check-lg me-1"></i>Approve
+                                </button>
+                            </form>
+                            <form method="post" action="{% url 'reject_reschedule' req.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-reject">
+                                    <i class="bi bi-x-lg me-1"></i>Reject
+                                </button>
+                            </form>
                         </div>
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
             {% else %}
-                <div class="text-center py-4">
-                    <i class="bi bi-inbox" style="font-size:2rem; color:#cbd5e1; display:block; margin-bottom:10px;"></i>
-                    <p style="color:#94a3b8; font-size:0.875rem; margin:0;">No pending requests at the moment.</p>
+                <div class="empty-block">
+                    <i class="bi bi-inbox"></i>
+                    <p>No pending requests at the moment.</p>
                 </div>
             {% endif %}
         </div>

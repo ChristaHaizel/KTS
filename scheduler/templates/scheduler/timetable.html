@@ -32,7 +32,7 @@
     </form>
 </div>
 
-<div class="kts-card" style="padding:0; overflow:hidden;">
+<div class="kts-card flush">
     <div class="table-responsive">
         <table class="table table-bordered mb-0 timetable-table">
             <thead>
@@ -44,24 +44,22 @@
                 </tr>
             </thead>
             <tbody>
-                {% for slot in timeslots %}
+                {% for row in grid %}
                 <tr>
                     <td class="time-cell">
-                        {{ slot.start_time|time:"H:i" }}<br>
-                        <span style="color:#94a3b8;">{{ slot.end_time|time:"H:i" }}</span>
+                        {{ row.start|time:"H:i" }}<br>
+                        <span class="time-cell-end">{{ row.end|time:"H:i" }}</span>
                     </td>
-                    {% for day in days %}
+                    {% for cell in row.cells %}
                     <td>
-                        {% for entry in entries_list %}
-                            {% if entry.timeslot.id == slot.id and entry.timeslot.day == day %}
-                            <div class="entry-pill">
-                                <div class="course-code">{{ entry.course.code }}</div>
-                                <div class="entry-meta">
-                                    <i class="bi bi-geo-alt"></i> {{ entry.room.name }}<br>
-                                    <i class="bi bi-people"></i> {{ entry.student_group.name }}
-                                </div>
+                        {% for entry in cell %}
+                        <div class="entry-pill">
+                            <div class="course-code">{{ entry.course.code }}</div>
+                            <div class="entry-meta">
+                                <i class="bi bi-geo-alt"></i> {{ entry.room.name }}<br>
+                                <i class="bi bi-people"></i> {{ entry.student_group.name }}
                             </div>
-                            {% endif %}
+                        </div>
                         {% endfor %}
                     </td>
                     {% endfor %}
@@ -69,7 +67,7 @@
                 {% empty %}
                 <tr>
                     <td colspan="6" class="text-center py-5 text-muted">
-                        <i class="bi bi-calendar-x" style="font-size:2rem; display:block; margin-bottom:10px;"></i>
+                        <i class="bi bi-calendar-x empty-inline-icon"></i>
                         No timetable entries yet. Use Generate to create one.
                     </td>
                 </tr>

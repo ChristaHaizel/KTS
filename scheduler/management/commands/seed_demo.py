@@ -1,0 +1,127 @@
+from datetime import time
+
+from django.core.management.base import BaseCommand
+from django.db import transaction
+
+from scheduler.models import (
+    Course, Lecturer, RescheduleRequest, Room, StudentGroup, TimeSlot, TimetableEntry,
+)
+
+LECTURERS = [
+    ('Dr. Kwame Mensah', 'kmensah@knust.edu.gh'),
+    ('Prof. Ama Boateng', 'aboateng@knust.edu.gh'),
+    ('Dr. Yaw Asante', 'yasante@knust.edu.gh'),
+    ('Dr. Akosua Owusu', 'aowusu@knust.edu.gh'),
+    ('Mr. Kofi Danso', 'kdanso@knust.edu.gh'),
+    ('Dr. Efua Sarpong', 'esarpong@knust.edu.gh'),
+    ('Prof. Kwabena Antwi', 'kantwi@knust.edu.gh'),
+    ('Ms. Adwoa Nyarko', 'anyarko@knust.edu.gh'),
+]
+
+ROOMS = [
+    ('PB 001 Lecture Hall', 250),
+    ('PB 012 Lecture Hall', 180),
+    ('Caesar Auditorium', 400),
+    ('CS Lab 1', 60),
+    ('CS Lab 2', 60),
+    ('SF 21', 90),
+    ('SF 22', 90),
+    ('NNB Seminar Room', 45),
+    ('Engineering Auditorium', 300),
+    ('CIT Studio', 35),
+]
+
+# (code, name, expected_students, lecturer_index)
+COURSES = [
+    ('CS 151', 'Introduction to Programming', 220, 0),
+    ('CS 153', 'Discrete Mathematics', 210, 1),
+    ('CS 155', 'Computer Organisation', 200, 2),
+    ('CS 251', 'Data Structures and Algorithms', 160, 0),
+    ('CS 253', 'Object Oriented Programming', 155, 3),
+    ('CS 255', 'Database Systems', 150, 4),
+    ('CS 351', 'Operating Systems', 120, 2),
+    ('CS 353', 'Computer Networks', 115, 5),
+    ('CS 355', 'Software Engineering', 130, 3),
+    ('CS 357', 'Theory of Computation', 110, 1),
+    ('CS 451', 'Distributed Systems', 85, 6),
+    ('CS 453', 'Machine Learning', 95, 6),
+    ('CS 455', 'Computer Graphics', 70, 7),
+    ('CS 457', 'Information Security', 80, 5),
+    ('CS 459', 'Final Year Project', 90, 4),
+]
+
+# (group name, course codes) - deliberately overlapping so conflict detection has work to do
+GROUPS = [
+    ('CS Level 100', ['CS 151', 'CS 153', 'CS 155']),
+    ('CS Level 200', ['CS 251', 'CS 253', 'CS 255']),
+    ('CS Level 300', ['CS 351', 'CS 353', 'CS 355', 'CS 357']),
+    ('CS Level 400', ['CS 451', 'CS 453', 'CS 455', 'CS 457', 'CS 459']),
+]
+
+DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
+PERIODS = [
+    (time(8, 0), time(10, 0)),
+    (time(10, 0), time(12, 0)),
+    (time(13, 0), time(15, 0)),
+    (time(15, 0), time(17, 0)),
+    (time(17, 0), time(19, 0)),
+]
+
+
+class Command(BaseCommand):
+    help = 'Seed a realistic KNUST demo dataset. Idempotent - safe to run repeatedly.'
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--flush',
+            action='store_true',
+            help='Delete all scheduler data before seeding.',
+        )
+
+    @transaction.atomic
+    def handle(self, *args, **options):
+        if options['flush']:
+            RescheduleRequest.objects.all().delete()
+            TimetableEntry.objects.all().delete()
+            StudentGroup.objects.all().delete()
+            Course.objects.all().delete()
+            Room.objects.all().delete()
+            TimeSlot.objects.all().delete()
+            Lecturer.objects.all().delete()
+            self.stdout.write(self.style.WARNING('Flushed all scheduler data.'))
+
+        lecturers = []
+        for name, email in LECTURERS:
+            lecturer, _ = Lecturer.objects.get_or_create(email=email, defaults={'name': name})
+            lecturers.append(lecturer)
+
+        for name, capacity in ROOMS:
+            Room.objects.get_or_create(name=name, defaults={'capacity': capacity})
+
+        courses = {}
+        for code, name, expected, lecturer_index in COURSES:
+            course, _ = Course.objects.get_or_create(
+                code=code,
+                defaults={
+                    'name': name,
+                    'expected_students': expected,
+                    'lecturer': lecturers[lecturer_index],
+                },
+            )
+            courses[code] = course
+
+        for group_name, course_codes in GROUPS:
+            group, _ = StudentGroup.objects.get_or_create(name=group_name)
+            group.courses.set([courses[c] for c in course_codes])
+
+        for day in DAYS:
+            for start, end in PERIODS:
+                TimeSlot.objects.get_or_create(day=day, start_time=start, end_time=end)
+
+        self.stdout.write(self.style.SUCCESS(
+            f'Seeded: {Lecturer.objects.count()} lecturers, '
+            f'{Room.objects.count()} rooms, '
+            f'{Course.objects.count()} courses, '
+            f'{StudentGroup.objects.count()} groups, '
+            f'{TimeSlot.objects.count()} time slots.'
+        ))

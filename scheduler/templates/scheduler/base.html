@@ -104,7 +104,8 @@
             text-transform: uppercase;
             margin-top: 2px;
         }
-        .sidebar-nav { padding: var(--sp-4) var(--sp-3); flex: 1; }
+        /* Scrolls rather than clipping the last links on a short viewport. */
+        .sidebar-nav { padding: var(--sp-4) var(--sp-3); flex: 1; overflow-y: auto; }
         .nav-section-label {
             font-size: 0.68rem;
             font-weight: 600;
@@ -164,6 +165,33 @@
             gap: 10px;
             font-size: 0.875rem;
             color: var(--ink-muted);
+        }
+        .topbar-username { font-weight: 500; }
+        .signout-form { margin: 0; }
+        .btn-signout {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 14px;
+            margin-left: var(--sp-2);
+            border-radius: var(--r-pill);
+            border: 1.5px solid var(--line-strong);
+            background: var(--surface);
+            color: var(--ink-muted);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+        }
+        .btn-signout:hover {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: var(--danger-bg);
+        }
+        /* Narrow screens keep the icon; the label is the first thing to go. */
+        @media (max-width: 640px) {
+            .btn-signout span { display: none; }
+            .topbar-username { display: none; }
         }
         .user-avatar {
             width: 34px;
@@ -691,10 +719,6 @@
         <a href="{% url 'reschedule' %}" class="nav-link {% if request.resolver_match.url_name == 'reschedule' %}active{% endif %}">
             <i class="bi bi-arrow-left-right"></i> Reschedule
         </a>
-        <div class="nav-section-label">Account</div>
-        <a href="{% url 'logout' %}" class="nav-link">
-            <i class="bi bi-box-arrow-right"></i> Sign Out
-        </a>
     </div>
 </div>
 
@@ -703,7 +727,18 @@
         <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
         <div class="topbar-user">
             <div class="user-avatar">{{ request.user.username|first|upper }}</div>
-            <span>{{ request.user.username }}</span>
+            <span class="topbar-username">{{ request.user.username }}</span>
+            {% comment %}
+            Logout must be POST - Django refuses GET - and the topbar is sticky,
+            so this stays reachable however far the page or sidebar scrolls.
+            {% endcomment %}
+            <form method="post" action="{% url 'logout' %}" class="signout-form">
+                {% csrf_token %}
+                <button type="submit" class="btn-signout">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Sign Out</span>
+                </button>
+            </form>
         </div>
     </div>
     <div class="content-area">

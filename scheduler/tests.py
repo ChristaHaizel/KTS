@@ -441,6 +441,27 @@ class AccessControlTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login/', response['Location'])
 
+    def test_sign_out_actually_signs_out(self):
+        """Django refuses GET for logout, so a plain link silently does nothing."""
+        self.client.force_login(self.admin)
+        self.assertIn('_auth_user_id', self.client.session)
+
+        response = self.client.post('/logout/')
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_sign_out_is_rendered_as_a_post_form(self):
+        """A GET link here returns 405 and leaves the user logged in, so the
+        control has to be a form. Guard the markup, not just the endpoint."""
+        self.client.force_login(self.admin)
+        body = self.client.get('/').content.decode()
+        self.assertIn('action="/logout/"', body)
+        self.assertNotIn('href="/logout/"', body)
+        # The form must carry a CSRF token or the POST is rejected.
+        form_start = body.index('action="/logout/"')
+        form_end = body.index('</form>', form_start)
+        self.assertIn('csrfmiddlewaretoken', body[form_start:form_end])
+
     def test_get_cannot_reject_reschedule(self):
         """T3.3: state must not change on GET."""
         self.client.force_login(self.admin)
@@ -692,6 +713,15 @@ class SmokeTests(TestCase):
         build_dataset()
         run_genetic_algorithm()
         self.client.force_login(make_admin())
+
+    def test_no_unrendered_template_syntax_leaks_into_pages(self):
+        """A {# #} comment spanning two lines is never matched by the lexer and
+        is emitted as literal text on the page."""
+        for url in ['/', '/timetable/', '/reschedule/', '/courses/', '/algorithm/']:
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                for token in ['{#', '#}', '{%', '%}']:
+                    self.assertNotIn(token, body)
 
     def test_all_get_routes_respond(self):
         course = Course.objects.first()

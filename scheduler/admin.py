@@ -34,5 +34,6 @@ class TimetableEntryAdmin(admin.ModelAdmin):
 
 @admin.register(RescheduleRequest)
 class RescheduleRequestAdmin(admin.ModelAdmin):
-    list_display = ['entry', 'requested_timeslot', 'status', 'created_at']
+    list_display = ['entry', 'requested_timeslot', 'status', 'requested_by', 'created_at', 'decided_by', 'decided_at']
     list_filter = ['status']
+    readonly_fields = ['created_at', 'decided_at']

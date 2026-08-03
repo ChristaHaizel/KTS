@@ -1,9 +1,11 @@
 from datetime import time
 
 from django.contrib.auth.models import Group, User
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.test import TestCase
 
 from .conflict_detector import detect_conflicts
+from .forms import TimeSlotForm
 from .genetic_algorithm import run_genetic_algorithm
 from .models import (
     Course, Lecturer, RescheduleRequest, Room, StudentGroup, TimeSlot, TimetableEntry,
@@ -199,6 +201,199 @@ class ConflictDetectorTests(TestCase):
         )
         types = {c['type'] for c in detect_conflicts()}
         self.assertIn('Room Capacity Mismatch', types)
+
+
+class ProposedMoveTests(TestCase):
+    """The branch detect_conflicts() takes when validating a reschedule.
+
+    It used to check only the target room, so an approval could introduce
+    lecturer and student-group clashes while reporting the move as safe.
+    """
+
+    def setUp(self):
+        self.lecturer = Lecturer.objects.create(name='Dr. Solo', email='solo@example.com')
+        self.c1 = Course.objects.create(
+            code='X1', name='One', expected_students=10, lecturer=self.lecturer
+        )
+        self.c2 = Course.objects.create(
+            code='X2', name='Two', expected_students=10, lecturer=self.lecturer
+        )
+        self.group = StudentGroup.objects.create(name='Level 400')
+        self.group.courses.set([self.c1, self.c2])
+        self.other_group = StudentGroup.objects.create(name='Level 300')
+
+        self.r1 = Room.objects.create(name='Room 1', capacity=50)
+        self.r2 = Room.objects.create(name='Room 2', capacity=50)
+        self.slot_a = TimeSlot.objects.create(
+            day='MON', start_time=time(8, 0), end_time=time(10, 0)
+        )
+        self.slot_b = TimeSlot.objects.create(
+            day='MON', start_time=time(10, 0), end_time=time(12, 0)
+        )
+        self.e1 = TimetableEntry.objects.create(
+            course=self.c1, room=self.r1, timeslot=self.slot_a, student_group=self.group
+        )
+        self.e2 = TimetableEntry.objects.create(
+            course=self.c2, room=self.r2, timeslot=self.slot_b, student_group=self.group
+        )
+
+    def test_detects_lecturer_clash_in_a_free_room(self):
+        """Different room, so no room clash - but the lecturer would teach both."""
+        found = detect_conflicts(
+            exclude_entry=self.e2, check_timeslot=self.slot_a, check_room=self.r2
+        )
+        self.assertIn('Lecturer Conflict', {c['type'] for c in found})
+
+    def test_detects_group_clash_in_a_free_room(self):
+        self.e2.course.lecturer = None  # isolate the group clash from the lecturer one
+        self.e2.course.save()
+        found = detect_conflicts(
+            exclude_entry=self.e2, check_timeslot=self.slot_a, check_room=self.r2
+        )
+        self.assertIn('Student Group Conflict', {c['type'] for c in found})
+
+    def test_detects_room_clash(self):
+        found = detect_conflicts(
+            exclude_entry=self.e2, check_timeslot=self.slot_a, check_room=self.r1
+        )
+        self.assertIn('Room Conflict', {c['type'] for c in found})
+
+    def test_detects_room_too_small_for_the_move(self):
+        tiny = Room.objects.create(name='Tiny', capacity=1)
+        self.e2.course.lecturer = None
+        self.e2.course.save()
+        found = detect_conflicts(
+            exclude_entry=self.e2, check_timeslot=self.slot_b, check_room=tiny
+        )
+        self.assertIn('Room Capacity Mismatch', {c['type'] for c in found})
+
+    def test_clean_move_reports_nothing(self):
+        free = TimeSlot.objects.create(
+            day='TUE', start_time=time(8, 0), end_time=time(10, 0)
+        )
+        found = detect_conflicts(
+            exclude_entry=self.e2, check_timeslot=free, check_room=self.r2
+        )
+        self.assertEqual(found, [])
+
+    def test_approving_a_clashing_move_is_refused_end_to_end(self):
+        """The regression itself: approve used to let this through."""
+        admin = make_admin('mover')
+        self.client.force_login(admin)
+        req = RescheduleRequest.objects.create(
+            entry=self.e2, requested_timeslot=self.slot_a,
+            requested_room=self.r2, reason='probe', requested_by=admin,
+        )
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+
+        req.refresh_from_db()
+        self.e2.refresh_from_db()
+        self.assertEqual(req.status, 'PENDING')
+        self.assertEqual(self.e2.timeslot, self.slot_b)
+        self.assertEqual(detect_conflicts(), [])
+
+
+class TimeSlotConstraintTests(TestCase):
+    def test_end_time_must_be_after_start_time(self):
+        slot = TimeSlot(day='MON', start_time=time(10, 0), end_time=time(8, 0))
+        with self.assertRaises(DjangoValidationError):
+            slot.full_clean()
+
+    def test_equal_start_and_end_is_rejected(self):
+        slot = TimeSlot(day='MON', start_time=time(9, 0), end_time=time(9, 0))
+        with self.assertRaises(DjangoValidationError):
+            slot.full_clean()
+
+    def test_duplicate_slot_is_rejected(self):
+        TimeSlot.objects.create(day='MON', start_time=time(8, 0), end_time=time(10, 0))
+        duplicate = TimeSlot(day='MON', start_time=time(8, 0), end_time=time(10, 0))
+        with self.assertRaises(DjangoValidationError):
+            duplicate.full_clean()
+
+    def test_same_period_on_another_day_is_allowed(self):
+        TimeSlot.objects.create(day='MON', start_time=time(8, 0), end_time=time(10, 0))
+        other = TimeSlot(day='TUE', start_time=time(8, 0), end_time=time(10, 0))
+        other.full_clean()  # must not raise
+        other.save()
+        self.assertEqual(TimeSlot.objects.count(), 2)
+
+    def test_form_surfaces_the_end_before_start_error(self):
+        form = TimeSlotForm(data={'day': 'MON', 'start_time': '10:00', 'end_time': '08:00'})
+        self.assertFalse(form.is_valid())
+        self.assertIn('end_time', form.errors)
+
+    def test_slots_are_ordered_monday_first(self):
+        for day in ['FRI', 'MON', 'WED']:
+            TimeSlot.objects.create(day=day, start_time=time(8, 0), end_time=time(10, 0))
+        self.assertEqual(
+            list(TimeSlot.objects.values_list('day', flat=True)),
+            ['MON', 'WED', 'FRI'],
+        )
+
+
+class UniqueNameTests(TestCase):
+    def test_duplicate_room_name_is_rejected(self):
+        Room.objects.create(name='CS Lab 1', capacity=40)
+        with self.assertRaises(DjangoValidationError):
+            Room(name='CS Lab 1', capacity=60).full_clean()
+
+    def test_duplicate_group_name_is_rejected(self):
+        StudentGroup.objects.create(name='CS Level 400')
+        with self.assertRaises(DjangoValidationError):
+            StudentGroup(name='CS Level 400').full_clean()
+
+
+class RequestOwnershipTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.entry = TimetableEntry.objects.filter(is_active=True).first()
+        self.free_slot = (TimeSlot.objects
+                          .exclude(pk__in=TimetableEntry.objects.filter(is_active=True)
+                                   .values_list('timeslot_id', flat=True))
+                          .first())
+
+    def test_submitting_records_the_author(self):
+        author = make_lecturer_user('requester')
+        self.client.force_login(author)
+        self.client.post('/reschedule/', {
+            'entry': self.entry.pk,
+            'timeslot': self.free_slot.pk,
+            'room': '',
+            'reason': 'Clashes with a departmental meeting.',
+        })
+        req = RescheduleRequest.objects.get()
+        self.assertEqual(req.requested_by, author)
+        self.assertEqual(req.status, 'PENDING')
+
+    def test_approval_records_the_decider_and_time(self):
+        author = make_lecturer_user('requester2')
+        admin = make_admin('decider')
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            requested_room=self.entry.room, reason='swap', requested_by=author,
+        )
+        self.client.force_login(admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'APPROVED')
+        self.assertEqual(req.requested_by, author)
+        self.assertEqual(req.decided_by, admin)
+        self.assertIsNotNone(req.decided_at)
+
+    def test_rejection_records_the_decider(self):
+        admin = make_admin('decider2')
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot, reason='no',
+        )
+        self.client.force_login(admin)
+        self.client.post(f'/reschedule/{req.pk}/reject/')
+
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'REJECTED')
+        self.assertEqual(req.decided_by, admin)
+        self.assertIsNotNone(req.decided_at)
 
 
 class TimetableViewTests(TestCase):

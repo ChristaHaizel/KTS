@@ -57,6 +57,12 @@
                                 <i class="bi bi-arrow-right"></i>
                                 Requested slot: <strong>{{ req.requested_timeslot }}</strong>
                             </div>
+                            <div class="meta">
+                                <i class="bi bi-person"></i>
+                                Requested by
+                                <strong>{{ req.requested_by.username|default:"unknown" }}</strong>
+                                on {{ req.created_at|date:"j M Y, H:i" }}
+                            </div>
                             <div class="meta faint mt-1">{{ req.reason }}</div>
                         </div>
                         {% if is_admin %}

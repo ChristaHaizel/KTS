@@ -1,6 +1,7 @@
 ﻿from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .permissions import admin_required
 from .models import TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup, TimeSlot
@@ -98,14 +99,17 @@ def reschedule_request(request):
         room = get_object_or_404(Room, id=room_id) if room_id else entry.room
         RescheduleRequest.objects.create(
             entry=entry, requested_timeslot=timeslot,
-            requested_room=room, reason=reason
+            requested_room=room, reason=reason,
+            requested_by=request.user,
         )
         messages.success(request, 'Reschedule request submitted successfully.')
         return redirect('timetable')
     entries = TimetableEntry.objects.filter(is_active=True).select_related('course', 'timeslot', 'room')
     timeslots = TimeSlot.objects.all()
     rooms = Room.objects.all()
-    pending = RescheduleRequest.objects.filter(status='PENDING').select_related('entry__course', 'requested_timeslot')
+    pending = RescheduleRequest.objects.filter(status='PENDING').select_related(
+        'entry__course', 'requested_timeslot', 'requested_by'
+    )
     return render(request, 'scheduler/reschedule.html', {
         'entries': entries, 'timeslots': timeslots,
         'rooms': rooms, 'pending_requests': pending
@@ -129,6 +133,8 @@ def approve_reschedule(request, pk):
         req.entry.room = req.requested_room or req.entry.room
         req.entry.save()
         req.status = 'APPROVED'
+        req.decided_by = request.user
+        req.decided_at = timezone.now()
         req.save()
         messages.success(request, 'Reschedule approved and timetable updated.')
     return redirect('reschedule')
@@ -139,6 +145,8 @@ def approve_reschedule(request, pk):
 def reject_reschedule(request, pk):
     req = get_object_or_404(RescheduleRequest, pk=pk)
     req.status = 'REJECTED'
+    req.decided_by = request.user
+    req.decided_at = timezone.now()
     req.save()
     messages.success(request, 'Reschedule request rejected.')
     return redirect('reschedule')

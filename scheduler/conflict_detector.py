@@ -7,15 +7,45 @@ def detect_conflicts(exclude_entry=None, check_timeslot=None, check_room=None):
     )
 
     if check_timeslot and check_room:
-        clash = entries.filter(timeslot=check_timeslot, room=check_room)
+        # Validating a proposed move. Checking only the room lets an approval
+        # create exactly the lecturer and student-group clashes the generator
+        # exists to prevent, while reporting the move as safe.
+        at_that_time = entries.filter(timeslot=check_timeslot)
         if exclude_entry:
-            clash = clash.exclude(id=exclude_entry.id)
-        for e in clash:
+            at_that_time = at_that_time.exclude(id=exclude_entry.id)
+
+        for e in at_that_time.filter(room=check_room):
             conflicts.append({
                 'type': 'Room Conflict',
-                'description': f'{check_room.name} is already booked at {check_timeslot}',
+                'description': f'{check_room.name} is already booked at {check_timeslot} by {e.course.code}',
                 'severity': 'high'
             })
+
+        if exclude_entry:
+            lecturer = exclude_entry.course.lecturer
+            if lecturer:
+                for e in at_that_time.filter(course__lecturer=lecturer):
+                    conflicts.append({
+                        'type': 'Lecturer Conflict',
+                        'description': f'{lecturer.name} already teaches {e.course.code} at {check_timeslot}',
+                        'severity': 'high'
+                    })
+
+            for e in at_that_time.filter(student_group=exclude_entry.student_group):
+                conflicts.append({
+                    'type': 'Student Group Conflict',
+                    'description': f'{exclude_entry.student_group.name} already has {e.course.code} at {check_timeslot}',
+                    'severity': 'medium'
+                })
+
+            if exclude_entry.course.expected_students > check_room.capacity:
+                conflicts.append({
+                    'type': 'Room Capacity Mismatch',
+                    'description': f'{check_room.name} (capacity {check_room.capacity}) is too small for '
+                                   f'{exclude_entry.course.code} (expected {exclude_entry.course.expected_students})',
+                    'severity': 'low'
+                })
+
         return conflicts
 
     seen_room_slots = {}

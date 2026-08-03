@@ -16,6 +16,7 @@
                 <tr>
                     <th>Name</th>
                     <th>Email</th>
+                    <th>Login account</th>
                     <th style="width:100px;">Actions</th>
                 </tr>
             </thead>
@@ -24,6 +25,13 @@
                 <tr>
                     <td class="cell-primary">{{ lecturer.name }}</td>
                     <td>{{ lecturer.email }}</td>
+                    <td>
+                        {% if lecturer.user %}
+                            <span class="day-badge">{{ lecturer.user.username }}</span>
+                        {% else %}
+                            <span class="text-faint">No account</span>
+                        {% endif %}
+                    </td>
                     <td>
                         <div class="row-actions">
                             <a href="{% url 'lecturer_edit' lecturer.pk %}" class="icon-btn icon-edit" title="Edit {{ lecturer.name }}">
@@ -37,7 +45,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="3" class="empty-state">
+                    <td colspan="4" class="empty-state">
                         <i class="bi bi-person-x"></i>
                         No lecturers yet. Click "Add Lecturer" to create one.
                     </td>

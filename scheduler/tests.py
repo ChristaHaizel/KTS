@@ -15,7 +15,7 @@ from .models import (
     Course, GenerationRun, Lecturer, RescheduleRequest, Room, StudentGroup,
     TimeSlot, TimetableEntry,
 )
-from .permissions import ADMIN_GROUP
+from .permissions import ADMIN_GROUP, is_admin, lecturer_for
 
 DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
 PERIODS = [
@@ -359,7 +359,13 @@ class RequestOwnershipTests(TestCase):
                           .first())
 
     def test_submitting_records_the_author(self):
+        # The account must be linked to the lecturer who teaches this class -
+        # see LecturerOwnershipTests for what happens when it is not.
         author = make_lecturer_user('requester')
+        lecturer = self.entry.course.lecturer
+        lecturer.user = author
+        lecturer.save()
+
         self.client.force_login(author)
         self.client.post('/reschedule/', {
             'entry': self.entry.pk,
@@ -704,6 +710,175 @@ class ChartGeometryTests(TestCase):
 
     def test_empty_history_has_no_chart(self):
         self.assertIsNone(convergence_chart([]))
+
+
+class LecturerOwnershipTests(TestCase):
+    """A lecturer account may only touch its own classes.
+
+    The dropdown being filtered is presentation; these tests forge the POST
+    directly, because that is what an actual misuse looks like.
+    """
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+
+        self.mine = Lecturer.objects.get(email='l0@example.com')
+        self.theirs = Lecturer.objects.get(email='l2@example.com')
+
+        self.user = make_lecturer_user('drmine')
+        self.mine.user = self.user
+        self.mine.save()
+
+        self.my_entry = TimetableEntry.objects.filter(
+            is_active=True, course__lecturer=self.mine
+        ).first()
+        self.their_entry = TimetableEntry.objects.filter(
+            is_active=True, course__lecturer=self.theirs
+        ).first()
+        self.free_slot = (TimeSlot.objects
+                          .exclude(pk__in=TimetableEntry.objects.filter(is_active=True)
+                                   .values_list('timeslot_id', flat=True))
+                          .first())
+
+    def _submit(self, entry):
+        return self.client.post('/reschedule/', {
+            'entry': entry.pk,
+            'timeslot': self.free_slot.pk,
+            'room': '',
+            'reason': 'test',
+        })
+
+    def test_lecturer_can_request_against_own_class(self):
+        self.client.force_login(self.user)
+        response = self._submit(self.my_entry)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(RescheduleRequest.objects.count(), 1)
+        self.assertEqual(RescheduleRequest.objects.get().requested_by, self.user)
+
+    def test_forged_post_for_another_lecturers_class_is_refused(self):
+        self.client.force_login(self.user)
+        response = self._submit(self.their_entry)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(RescheduleRequest.objects.count(), 0)
+
+    def test_account_with_no_lecturer_gets_nothing(self):
+        """Unlinked accounts must see no classes, not every class."""
+        self.client.force_login(make_lecturer_user('unlinked'))
+        response = self.client.get('/reschedule/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['entries']), 0)
+        self.assertEqual(self._submit(self.my_entry).status_code, 404)
+        self.assertEqual(RescheduleRequest.objects.count(), 0)
+
+    def test_dropdown_lists_only_own_classes(self):
+        self.client.force_login(self.user)
+        entries = self.client.get('/reschedule/').context['entries']
+        self.assertGreater(len(entries), 0)
+        for entry in entries:
+            self.assertEqual(entry.course.lecturer, self.mine)
+
+    def test_admin_still_sees_every_class(self):
+        self.client.force_login(make_admin('boss'))
+        entries = self.client.get('/reschedule/').context['entries']
+        self.assertEqual(
+            len(entries), TimetableEntry.objects.filter(is_active=True).count()
+        )
+
+    def test_lecturer_sees_only_their_own_pending_requests(self):
+        other_user = make_lecturer_user('other')
+        self.theirs.user = other_user
+        self.theirs.save()
+
+        RescheduleRequest.objects.create(
+            entry=self.my_entry, requested_timeslot=self.free_slot,
+            reason='mine', requested_by=self.user,
+        )
+        RescheduleRequest.objects.create(
+            entry=self.their_entry, requested_timeslot=self.free_slot,
+            reason='theirs', requested_by=other_user,
+        )
+
+        self.client.force_login(self.user)
+        pending = self.client.get('/reschedule/').context['pending_requests']
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].requested_by, self.user)
+
+    def test_admin_sees_all_pending_requests(self):
+        RescheduleRequest.objects.create(
+            entry=self.my_entry, requested_timeslot=self.free_slot,
+            reason='mine', requested_by=self.user,
+        )
+        self.client.force_login(make_admin('boss2'))
+        pending = self.client.get('/reschedule/').context['pending_requests']
+        self.assertEqual(len(pending), 1)
+
+    def test_lecturer_still_cannot_approve(self):
+        req = RescheduleRequest.objects.create(
+            entry=self.my_entry, requested_timeslot=self.free_slot,
+            reason='mine', requested_by=self.user,
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(f'/reschedule/{req.pk}/approve/')
+        self.assertIn(response.status_code, (302, 403))
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'PENDING')
+
+    def test_profile_lookup_handles_unlinked_and_anonymous(self):
+        from django.contrib.auth.models import AnonymousUser
+        self.assertEqual(lecturer_for(self.user), self.mine)
+        self.assertIsNone(lecturer_for(make_lecturer_user('nobody')))
+        self.assertIsNone(lecturer_for(AnonymousUser()))
+
+    def test_deleting_the_account_keeps_the_lecturer(self):
+        """Scheduling data must outlive an account being removed."""
+        self.user.delete()
+        self.mine.refresh_from_db()
+        self.assertIsNone(self.mine.user)
+        self.assertTrue(Lecturer.objects.filter(pk=self.mine.pk).exists())
+
+
+class CreateLecturerUsersCommandTests(TestCase):
+    def setUp(self):
+        build_dataset()
+
+    def test_creates_and_links_accounts(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        self.assertEqual(Lecturer.objects.filter(user__isnull=False).count(), 0)
+        call_command('create_lecturer_users', stdout=StringIO())
+        self.assertEqual(Lecturer.objects.filter(user__isnull=True).count(), 0)
+
+    def test_is_idempotent(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        call_command('create_lecturer_users', stdout=StringIO())
+        before = User.objects.count()
+        out = StringIO()
+        call_command('create_lecturer_users', stdout=out)
+        self.assertEqual(User.objects.count(), before)
+        self.assertIn('Nothing to do', out.getvalue())
+
+    def test_dry_run_writes_nothing(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        before = User.objects.count()
+        call_command('create_lecturer_users', '--dry-run', stdout=StringIO())
+        self.assertEqual(User.objects.count(), before)
+        self.assertEqual(Lecturer.objects.filter(user__isnull=False).count(), 0)
+
+    def test_created_accounts_have_no_admin_rights(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        call_command('create_lecturer_users', stdout=StringIO())
+        for lecturer in Lecturer.objects.all():
+            self.assertFalse(lecturer.user.is_superuser)
+            self.assertFalse(lecturer.user.is_staff)
+            self.assertFalse(is_admin(lecturer.user))
 
 
 class SmokeTests(TestCase):

@@ -6,10 +6,27 @@
     <div class="col-md-5">
         <div class="kts-card">
             <div class="kts-card-title"><i class="bi bi-pencil-square"></i> Submit a Request</div>
+            {% if not entries %}
+                <div class="alert alert-warning">
+                    {% if is_admin %}
+                        There are no scheduled classes yet. Generate a timetable first.
+                    {% elif lecturer_profile %}
+                        You have no scheduled classes, so there is nothing to reschedule.
+                    {% else %}
+                        Your account is not linked to a lecturer, so it has no classes.
+                        Ask an administrator to link it on the Lecturers page.
+                    {% endif %}
+                </div>
+            {% else %}
             <form method="post">
                 {% csrf_token %}
                 <div class="mb-3">
                     <label class="form-label">Class to Reschedule</label>
+                    {% if not is_admin %}
+                    <div class="form-hint small mb-2">
+                        Showing the classes taught by {{ lecturer_profile.name }}.
+                    </div>
+                    {% endif %}
                     <select name="entry" class="form-select" required>
                         <option value="">Select a class...</option>
                         {% for entry in entries %}
@@ -41,6 +58,7 @@
                 </div>
                 <button type="submit" class="btn btn-kts-primary w-100">Submit Request</button>
             </form>
+            {% endif %}
         </div>
     </div>
 

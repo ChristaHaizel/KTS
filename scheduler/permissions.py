@@ -14,6 +14,20 @@ def is_admin(user):
 admin_required = user_passes_test(is_admin)
 
 
+def lecturer_for(user):
+    """The Lecturer this account belongs to, or None.
+
+    Django makes the reverse one-to-one raise a subclass of AttributeError when
+    nothing is linked, so getattr's default applies cleanly.
+    """
+    if not user.is_authenticated:
+        return None
+    return getattr(user, 'lecturer_profile', None)
+
+
 def admin_flag(request):
     """Context processor so templates can hide admin-only navigation."""
-    return {'is_admin': is_admin(request.user)}
+    return {
+        'is_admin': is_admin(request.user),
+        'lecturer_profile': lecturer_for(request.user),
+    }

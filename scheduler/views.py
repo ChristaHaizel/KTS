@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from .permissions import admin_required
+from .permissions import admin_required, is_admin, lecturer_for
 from .models import (
     TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup,
     TimeSlot, GenerationRun,
@@ -127,32 +127,55 @@ def algorithm_report(request):
         ],
     })
 
+def _requestable_entries(user):
+    """The classes this account may raise a reschedule against.
+
+    Administrators cover the whole timetable. Everyone else is limited to the
+    classes taught by the lecturer their account is linked to - and an account
+    with no lecturer linked gets nothing, rather than everything.
+    """
+    entries = TimetableEntry.objects.filter(is_active=True).select_related(
+        'course', 'timeslot', 'room', 'course__lecturer'
+    )
+    if is_admin(user):
+        return entries
+    lecturer = lecturer_for(user)
+    if lecturer is None:
+        return entries.none()
+    return entries.filter(course__lecturer=lecturer)
+
+
 @login_required
 def reschedule_request(request):
+    # This queryset is the security boundary, not just the dropdown's contents:
+    # the POST resolves the chosen entry against it, so a forged id 404s.
+    entries = _requestable_entries(request.user)
+
     if request.method == 'POST':
-        entry_id = request.POST.get('entry')
-        timeslot_id = request.POST.get('timeslot')
+        entry = get_object_or_404(entries, id=request.POST.get('entry'))
+        timeslot = get_object_or_404(TimeSlot, id=request.POST.get('timeslot'))
         room_id = request.POST.get('room')
-        reason = request.POST.get('reason')
-        entry = get_object_or_404(TimetableEntry, id=entry_id)
-        timeslot = get_object_or_404(TimeSlot, id=timeslot_id)
         room = get_object_or_404(Room, id=room_id) if room_id else entry.room
         RescheduleRequest.objects.create(
             entry=entry, requested_timeslot=timeslot,
-            requested_room=room, reason=reason,
+            requested_room=room, reason=request.POST.get('reason'),
             requested_by=request.user,
         )
         messages.success(request, 'Reschedule request submitted successfully.')
         return redirect('timetable')
-    entries = TimetableEntry.objects.filter(is_active=True).select_related('course', 'timeslot', 'room')
-    timeslots = TimeSlot.objects.all()
-    rooms = Room.objects.all()
+
     pending = RescheduleRequest.objects.filter(status='PENDING').select_related(
         'entry__course', 'requested_timeslot', 'requested_by'
     )
+    if not is_admin(request.user):
+        pending = pending.filter(requested_by=request.user)
+
     return render(request, 'scheduler/reschedule.html', {
-        'entries': entries, 'timeslots': timeslots,
-        'rooms': rooms, 'pending_requests': pending
+        'entries': entries,
+        'timeslots': TimeSlot.objects.all(),
+        'rooms': Room.objects.all(),
+        'pending_requests': pending,
+        'lecturer_profile': lecturer_for(request.user),
     })
 
 @login_required

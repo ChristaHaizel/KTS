@@ -5,10 +5,16 @@ from .models import Lecturer, Course, Room, StudentGroup, TimeSlot
 class LecturerForm(forms.ModelForm):
     class Meta:
         model = Lecturer
-        fields = ['name', 'email']
+        fields = ['name', 'email', 'user']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Dr. Kwame Mensah'}),
             'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'e.g. kmensah@knust.edu.gh'}),
+            'user': forms.Select(attrs={'class': 'form-select'}),
+        }
+        labels = {'user': 'Login account'}
+        help_texts = {
+            'user': 'Optional. Linking an account lets this lecturer sign in and '
+                    'raise reschedule requests for their own classes.',
         }
 
 

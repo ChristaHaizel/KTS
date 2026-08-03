@@ -33,6 +33,20 @@ class Room(models.Model):
 class Lecturer(models.Model):
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
+    # Nullable: a lecturer is primarily scheduling data, and most of them will
+    # never need to sign in. Linking one to an account is what lets them see
+    # their own classes and raise requests against them.
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lecturer_profile',
+        help_text='The login account this lecturer signs in with, if they have one.',
+    )
+
+    class Meta:
+        ordering = ['name']
 
     def __str__(self):
         return self.name

@@ -77,7 +77,13 @@
 
         /* Sidebar */
         .sidebar {
-            min-height: 100vh;
+            /* Height, not min-height. A fixed element that grows past the
+               viewport cannot be scrolled to - the overflow is simply
+               unreachable - and an unconstrained box never lets the nav below
+               it scroll either. dvh keeps this honest on mobile, where the
+               browser chrome changes the viewport height. */
+            height: 100vh;
+            height: 100dvh;
             background: var(--kts-blue);
             width: 250px;
             position: fixed;
@@ -104,8 +110,15 @@
             text-transform: uppercase;
             margin-top: 2px;
         }
-        /* Scrolls rather than clipping the last links on a short viewport. */
-        .sidebar-nav { padding: var(--sp-4) var(--sp-3); flex: 1; overflow-y: auto; }
+        /* Scrolls rather than clipping the last links on a short viewport.
+           min-height:0 is required: a flex item defaults to min-height:auto,
+           which refuses to shrink below its content, so overflow never engages. */
+        .sidebar-nav {
+            padding: var(--sp-4) var(--sp-3);
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+        }
         .nav-section-label {
             font-size: 0.68rem;
             font-weight: 600;

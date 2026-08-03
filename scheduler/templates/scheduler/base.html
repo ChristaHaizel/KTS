@@ -126,16 +126,6 @@
             background: rgba(255,255,255,0.18);
             color: var(--on-brand);
         }
-        .sidebar-footer {
-            padding: var(--sp-4) var(--sp-3);
-            border-top: 1px solid rgba(255,255,255,0.1);
-        }
-        .sidebar-footer .nav-link {
-            color: rgba(255,255,255,0.6);
-            font-size: 0.85rem;
-        }
-        .sidebar-footer .nav-link:hover { color: var(--on-brand); }
-
         /* Main content */
         .main-wrap {
             margin-left: 250px;
@@ -636,14 +626,7 @@
         <a href="{% url 'reschedule' %}" class="nav-link {% if request.resolver_match.url_name == 'reschedule' %}active{% endif %}">
             <i class="bi bi-arrow-left-right"></i> Reschedule
         </a>
-        {% if is_admin %}
-        <div class="nav-section-label">System</div>
-        <a href="{% url 'admin:index' %}" class="nav-link">
-            <i class="bi bi-shield-lock"></i> Admin Panel
-        </a>
-        {% endif %}
-    </div>
-    <div class="sidebar-footer">
+        <div class="nav-section-label">Account</div>
         <a href="{% url 'logout' %}" class="nav-link">
             <i class="bi bi-box-arrow-right"></i> Sign Out
         </a>

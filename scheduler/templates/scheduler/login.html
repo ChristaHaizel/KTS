@@ -103,6 +103,27 @@
             outline-offset: 2px;
         }
         .form-label { font-weight: 500; font-size: 0.85rem; color: var(--ink-label); margin-bottom: 6px; }
+        .password-field { position: relative; }
+        /* Leave room for the toggle so a long password never runs under it. */
+        .password-field .form-control { padding-right: 46px; }
+        .password-toggle {
+            position: absolute;
+            top: 50%;
+            right: 7px;
+            transform: translateY(-50%);
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--ink-faint);
+            border-radius: var(--r-circle);
+            cursor: pointer;
+            transition: color 0.2s, background-color 0.2s;
+        }
+        .password-toggle:hover { color: var(--kts-blue); background: var(--kts-blue-tint); }
         .btn-login {
             background: var(--kts-blue);
             border: none;
@@ -162,12 +183,34 @@
                 <input type="text" name="username" class="form-control" autofocus placeholder="Enter your username">
             </div>
             <div class="mb-4">
-                <label class="form-label">Password</label>
-                <input type="password" name="password" class="form-control" placeholder="Enter your password">
+                <label class="form-label" for="id_password">Password</label>
+                <div class="password-field">
+                    <input type="password" name="password" id="id_password" class="form-control" placeholder="Enter your password">
+                    <button type="button" class="password-toggle" id="password-toggle"
+                            aria-label="Show password" aria-pressed="false" aria-controls="id_password">
+                        <i class="bi bi-eye" id="password-toggle-icon" aria-hidden="true"></i>
+                    </button>
+                </div>
             </div>
             <button type="submit" class="btn-login">Sign In</button>
         </form>
     </div>
 </div>
+<script>
+    (function () {
+        var input = document.getElementById('id_password');
+        var toggle = document.getElementById('password-toggle');
+        var icon = document.getElementById('password-toggle-icon');
+
+        toggle.addEventListener('click', function () {
+            var wasRevealed = input.type === 'text';
+            input.type = wasRevealed ? 'password' : 'text';
+            icon.className = wasRevealed ? 'bi bi-eye' : 'bi bi-eye-slash';
+            toggle.setAttribute('aria-label', wasRevealed ? 'Show password' : 'Hide password');
+            toggle.setAttribute('aria-pressed', wasRevealed ? 'false' : 'true');
+            input.focus();
+        });
+    })();
+</script>
 </body>
 </html>

@@ -104,6 +104,37 @@ class TimetableEntry(models.Model):
     def __str__(self):
         return f"{self.course.code} | {self.room.name} | {self.timeslot}"
 
+class GenerationRun(models.Model):
+    """One execution of the generator, kept so the algorithm can be evidenced.
+
+    A genetic algorithm is only defensible if you can show it converging and
+    show it beating a naive baseline; without a record of each run there is
+    nothing to plot and nothing to compare.
+    """
+    created_at = models.DateTimeField(auto_now_add=True)
+    generations_run = models.IntegerField()
+    best_fitness = models.FloatField()
+    entries_created = models.IntegerField()
+    dropped = models.IntegerField(default=0)
+    runtime_seconds = models.FloatField()
+    # Best fitness at the end of each generation, oldest first.
+    history = models.JSONField(default=list)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Run {self.created_at:%Y-%m-%d %H:%M} - fitness {self.best_fitness:.4f}"
+
+    @property
+    def converged_at(self):
+        """The first generation that reached the best fitness this run found."""
+        for index, value in enumerate(self.history):
+            if value >= self.best_fitness:
+                return index + 1
+        return self.generations_run
+
+
 class RescheduleRequest(models.Model):
     STATUS = [
         ('PENDING', 'Pending'),

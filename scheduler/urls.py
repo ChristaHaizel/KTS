@@ -6,6 +6,7 @@ urlpatterns = [
     path('timetable/', views.timetable_view, name='timetable'),
     path('conflicts/', views.conflict_view, name='conflicts'),
     path('generate/', views.generate_timetable, name='generate'),
+    path('algorithm/', views.algorithm_report, name='algorithm'),
     path('reschedule/', views.reschedule_request, name='reschedule'),
     path('reschedule/<int:pk>/approve/', views.approve_reschedule, name='approve_reschedule'),
     path('reschedule/<int:pk>/reject/', views.reject_reschedule, name='reject_reschedule'),

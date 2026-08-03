@@ -4,9 +4,17 @@ from django.contrib import messages
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .permissions import admin_required
-from .models import TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup, TimeSlot
+from .models import (
+    TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup,
+    TimeSlot, GenerationRun,
+)
+from .baselines import compare
+from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
-from .genetic_algorithm import run_genetic_algorithm
+from .genetic_algorithm import (
+    run_genetic_algorithm, PENALTY_ROOM_CLASH, PENALTY_LECTURER_CLASH,
+    PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
+)
 from .forms import LecturerForm, CourseForm, RoomForm, StudentGroupForm, TimeSlotForm
 
 @login_required
@@ -79,6 +87,14 @@ def generate_timetable(request):
     if request.method == 'POST':
         result = run_genetic_algorithm()
         if result['success']:
+            GenerationRun.objects.create(
+                generations_run=result['generations_run'],
+                best_fitness=result['fitness'],
+                entries_created=result['entries_created'],
+                dropped=result['dropped'],
+                runtime_seconds=result['runtime_seconds'],
+                history=result['history'],
+            )
             messages.success(request, f"Timetable generated successfully! {result['entries_created']} entries created.")
             if result.get('dropped'):
                 messages.warning(request, result['message'])
@@ -86,6 +102,30 @@ def generate_timetable(request):
             messages.error(request, f"Could not generate a conflict-free timetable: {result['message']}")
         return redirect('timetable')
     return render(request, 'scheduler/generate.html')
+
+@login_required
+@admin_required
+def algorithm_report(request):
+    """Evidence that the generator works: convergence, and how it compares to
+    approaches that do not need a genetic algorithm at all."""
+    latest = GenerationRun.objects.first()
+    return render(request, 'scheduler/algorithm.html', {
+        'latest': latest,
+        'chart': convergence_chart(latest.history) if latest else None,
+        'runs': GenerationRun.objects.all()[:10],
+        'baseline': compare(trials=5),
+        'weights': [
+            ('Room double-booked', PENALTY_ROOM_CLASH,
+             'Two classes cannot share a room. Unusable.'),
+            ('Lecturer double-booked', PENALTY_LECTURER_CLASH,
+             'One person cannot be in two rooms. Unusable.'),
+            ('Student group clash', PENALTY_GROUP_CLASH,
+             'Also impossible, but a group can be split across sessions in a '
+             'way a room or a person cannot, so it is weighted lower.'),
+            ('Room over capacity', PENALTY_OVER_CAPACITY,
+             'The only soft constraint: workable, merely bad.'),
+        ],
+    })
 
 @login_required
 def reschedule_request(request):

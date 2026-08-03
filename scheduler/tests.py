@@ -1,14 +1,19 @@
+import random
 from datetime import time
 
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.test import TestCase
 
+from . import charts
+from .baselines import compare, greedy_schedule, random_schedule
+from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
 from .forms import TimeSlotForm
-from .genetic_algorithm import run_genetic_algorithm
+from .genetic_algorithm import fitness, load_problem, run_genetic_algorithm
 from .models import (
-    Course, Lecturer, RescheduleRequest, Room, StudentGroup, TimeSlot, TimetableEntry,
+    Course, GenerationRun, Lecturer, RescheduleRequest, Room, StudentGroup,
+    TimeSlot, TimetableEntry,
 )
 from .permissions import ADMIN_GROUP
 
@@ -530,6 +535,154 @@ class RescheduleTests(TestCase):
         self.entry.refresh_from_db()
         self.assertEqual(req.status, 'APPROVED')
         self.assertEqual(self.entry.room, original_room)
+
+
+class AlgorithmReportTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        self.admin = make_admin('reporter')
+
+    def test_generating_records_a_run(self):
+        self.client.force_login(self.admin)
+        self.client.post('/generate/')
+        run = GenerationRun.objects.get()
+        self.assertGreater(run.generations_run, 0)
+        self.assertEqual(len(run.history), run.generations_run)
+        self.assertGreater(run.runtime_seconds, 0)
+
+    def test_history_is_monotonic(self):
+        """Best-so-far must never fall, or the curve is not convergence."""
+        result = run_genetic_algorithm()
+        history = result['history']
+        for earlier, later in zip(history, history[1:]):
+            self.assertLessEqual(earlier, later)
+
+    def test_page_renders_with_a_run(self):
+        self.client.force_login(self.admin)
+        self.client.post('/generate/')
+        response = self.client.get('/algorithm/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'chart-svg')
+        self.assertContains(response, 'Penalty weights')
+
+    def test_page_renders_with_no_runs(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(GenerationRun.objects.count(), 0)
+        response = self.client.get('/algorithm/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No runs recorded yet')
+
+    def test_page_is_admin_only(self):
+        self.client.force_login(make_lecturer_user('nosy'))
+        response = self.client.get('/algorithm/')
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_converged_at_reports_first_best_generation(self):
+        run = GenerationRun(
+            generations_run=5, best_fitness=0.5, entries_created=1,
+            runtime_seconds=0.1, history=[0.1, 0.3, 0.5, 0.5, 0.5],
+        )
+        self.assertEqual(run.converged_at, 3)
+
+
+class BaselineTests(TestCase):
+    def setUp(self):
+        build_dataset()
+
+    def test_greedy_is_never_worse_than_random_on_average(self):
+        """True on any dataset. On a loose one both can reach 1.0, so this is
+        deliberately not a strict inequality - see the constrained test below."""
+        enrollments, rooms, timeslots = load_problem()
+        greedy = fitness(greedy_schedule(enrollments, rooms, timeslots))
+        randoms = [
+            fitness(random_schedule(enrollments, rooms, timeslots)) for _ in range(20)
+        ]
+        self.assertGreaterEqual(greedy, sum(randoms) / len(randoms))
+
+    def test_greedy_beats_random_when_slots_are_scarce(self):
+        """Where the comparison actually means something: with only as many
+        (room, slot) pairs as there are classes, random almost never lands a
+        clean schedule and first-fit reliably does."""
+        random.seed(20260803)  # deterministic, so this can never flake
+        TimeSlot.objects.exclude(
+            pk__in=TimeSlot.objects.values_list('pk', flat=True)[:2]
+        ).delete()
+        Room.objects.exclude(
+            pk__in=Room.objects.values_list('pk', flat=True)[:2]
+        ).delete()
+
+        enrollments, rooms, timeslots = load_problem()
+        greedy = fitness(greedy_schedule(enrollments, rooms, timeslots))
+        randoms = [
+            fitness(random_schedule(enrollments, rooms, timeslots)) for _ in range(20)
+        ]
+        self.assertGreater(greedy, sum(randoms) / len(randoms))
+
+    def test_ga_is_at_least_as_good_as_greedy(self):
+        enrollments, rooms, timeslots = load_problem()
+        greedy = fitness(greedy_schedule(enrollments, rooms, timeslots))
+        ga = run_genetic_algorithm()['fitness']
+        self.assertGreaterEqual(ga, greedy)
+
+    def test_every_approach_schedules_every_class(self):
+        enrollments, rooms, timeslots = load_problem()
+        for name, schedule in [
+            ('random', random_schedule(enrollments, rooms, timeslots)),
+            ('greedy', greedy_schedule(enrollments, rooms, timeslots)),
+        ]:
+            with self.subTest(approach=name):
+                self.assertEqual(len(schedule), len(enrollments))
+
+    def test_greedy_respects_enrollment(self):
+        enrollments, rooms, timeslots = load_problem()
+        for gene in greedy_schedule(enrollments, rooms, timeslots):
+            self.assertIn(gene['course'], gene['group'].courses.all())
+
+    def test_compare_returns_none_with_nothing_to_schedule(self):
+        StudentGroup.objects.all().delete()
+        self.assertIsNone(compare(trials=2))
+
+    def test_fitness_is_one_only_when_clean(self):
+        enrollments, rooms, timeslots = load_problem()
+        group, course = enrollments[0]
+        room, slot = rooms[0], timeslots[0]
+        clean = [{'course': course, 'group': group, 'room': room, 'timeslot': slot}]
+        self.assertEqual(fitness(clean), 1.0)
+
+        clashing = clean + [{
+            'course': course, 'group': group, 'room': room, 'timeslot': slot,
+        }]
+        self.assertLess(fitness(clashing), 1.0)
+
+
+class ChartGeometryTests(TestCase):
+    def test_points_stay_inside_the_plot_box(self):
+        chart = convergence_chart([0.0, 0.4, 0.9, 1.0])
+        points = [tuple(map(float, p.split(','))) for p in chart['polyline'].split()]
+        left, right = charts.PAD_LEFT, charts.PAD_LEFT + charts.PLOT_WIDTH
+        top, bottom = charts.PAD_TOP, charts.PAD_TOP + charts.PLOT_HEIGHT
+        for x, y in points:
+            self.assertGreaterEqual(round(x, 3), left)
+            self.assertLessEqual(round(x, 3), right)
+            self.assertGreaterEqual(round(y, 3), top)
+            self.assertLessEqual(round(y, 3), bottom)
+
+    def test_axis_labels_fit_inside_the_viewbox(self):
+        """The x-axis band must be inside the height, or the card grows a scrollbar."""
+        chart = convergence_chart([0.5, 1.0])
+        self.assertLess(chart['plot_bottom'] + 18, charts.HEIGHT)
+
+    def test_higher_fitness_sits_higher(self):
+        chart = convergence_chart([0.1, 0.9])
+        points = [tuple(map(float, p.split(','))) for p in chart['polyline'].split()]
+        self.assertLess(points[1][1], points[0][1])
+
+    def test_single_generation_gets_a_marker_not_a_line(self):
+        chart = convergence_chart([1.0])
+        self.assertIsNotNone(chart['single_point'])
+
+    def test_empty_history_has_no_chart(self):
+        self.assertIsNone(convergence_chart([]))
 
 
 class SmokeTests(TestCase):

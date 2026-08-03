@@ -1,12 +1,13 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}KTS - KNUST Timetable System{% endblock %}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    {# Self-hosted so the app renders correctly with no internet connection. #}
+    <link href="{% static 'scheduler/vendor/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'scheduler/vendor/bootstrap-icons.css' %}" rel="stylesheet">
+    <link href="{% static 'scheduler/vendor/inter.css' %}" rel="stylesheet">
     <style>
         :root {
             /* Brand - flat fills only */
@@ -35,6 +36,13 @@
             --warn:            #d97706;  --warn-bg:    #fffbeb;
             --violet:          #7c3aed;  --violet-bg:  #f5f3ff;
             --orange:          #ea580c;  --orange-bg:  #fff7ed;
+
+            /* Chart chrome. The series is the brand hue; grid and axis sit one
+               shade off the surface so they recede behind the data. */
+            --chart-grid:      #e8edf5;
+            --chart-axis:      #cbd5e1;
+            --chart-label:     #94a3b8;
+            --chart-series:    #05409E;
 
             /* Radius scale */
             --r-pill:          999px;   /* buttons, inputs, badges, nav links */
@@ -573,6 +581,60 @@
         .generate-submit { font-size: 1rem; }
         .generate-cancel { font-size: 0.85rem; color: var(--ink-faint); text-decoration: none; }
 
+        /* Convergence chart.
+           Emphasis form: one series in the brand hue, context in gray. Grid and
+           axes are solid hairlines one shade off the surface, so they recede
+           rather than competing with the data. */
+        .chart-figure { margin: 0; }
+        .chart-svg { width: 100%; height: auto; display: block; }
+        .chart-grid-line { stroke: var(--chart-grid); stroke-width: 1; }
+        .chart-axis-line { stroke: var(--chart-axis); stroke-width: 1; }
+        .chart-series-line {
+            fill: none;
+            stroke: var(--chart-series);
+            stroke-width: 2;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+        .chart-series-point { fill: var(--chart-series); }
+        .chart-tick {
+            font-size: 11px;
+            fill: var(--chart-label);
+            font-variant-numeric: tabular-nums;
+        }
+        .chart-end-label {
+            font-size: 12px;
+            font-weight: 600;
+            fill: var(--kts-blue);
+            font-variant-numeric: tabular-nums;
+        }
+        .chart-axis-title {
+            font-size: 11px;
+            fill: var(--ink-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+        }
+        .chart-caption {
+            font-size: 0.8rem;
+            color: var(--ink-muted);
+            margin-top: var(--sp-3);
+        }
+        .metric-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: var(--sp-3);
+            margin-bottom: var(--sp-5);
+        }
+        .metric-tile {
+            border: 1px solid var(--line);
+            border-radius: var(--r-inset);
+            padding: var(--sp-4);
+            background: var(--surface-sunken);
+        }
+        .metric-value { font-size: 1.6rem; font-weight: 700; color: var(--ink); line-height: 1.1; }
+        .metric-label { font-size: 0.75rem; color: var(--ink-faint); margin-top: var(--sp-1); }
+        .winner-row td { font-weight: 700; color: var(--kts-blue); }
+
         /* Login alert (login.html carries its own copy of the tokens) */
         .login-alert {
             border-radius: var(--r-card);
@@ -622,6 +684,9 @@
         <a href="{% url 'generate' %}" class="nav-link {% if request.resolver_match.url_name == 'generate' %}active{% endif %}">
             <i class="bi bi-cpu"></i> Generate
         </a>
+        <a href="{% url 'algorithm' %}" class="nav-link {% if request.resolver_match.url_name == 'algorithm' %}active{% endif %}">
+            <i class="bi bi-graph-up-arrow"></i> Algorithm
+        </a>
         {% endif %}
         <a href="{% url 'reschedule' %}" class="nav-link {% if request.resolver_match.url_name == 'reschedule' %}active{% endif %}">
             <i class="bi bi-arrow-left-right"></i> Reschedule
@@ -654,6 +719,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{% static 'scheduler/vendor/bootstrap.bundle.min.js' %}"></script>
 </body>
 </html>

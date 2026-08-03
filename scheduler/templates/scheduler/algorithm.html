@@ -1,0 +1,206 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Algorithm - KTS{% endblock %}
+{% block page_title %}Algorithm Report{% endblock %}
+{% block content %}
+
+{% if latest %}
+<div class="kts-card mb-4">
+    <div class="kts-card-title"><i class="bi bi-graph-up-arrow"></i> Convergence of the most recent run</div>
+
+    <div class="metric-row">
+        <div class="metric-tile">
+            <div class="metric-value">{{ latest.best_fitness|floatformat:4 }}</div>
+            <div class="metric-label">Best fitness (1.0 is perfect)</div>
+        </div>
+        <div class="metric-tile">
+            <div class="metric-value">{{ latest.generations_run }}</div>
+            <div class="metric-label">Generations run</div>
+        </div>
+        <div class="metric-tile">
+            <div class="metric-value">{{ latest.converged_at }}</div>
+            <div class="metric-label">Converged at generation</div>
+        </div>
+        <div class="metric-tile">
+            <div class="metric-value">{{ latest.runtime_seconds|floatformat:3 }}s</div>
+            <div class="metric-label">Runtime</div>
+        </div>
+        <div class="metric-tile">
+            <div class="metric-value">{{ latest.entries_created }}</div>
+            <div class="metric-label">Classes placed</div>
+        </div>
+    </div>
+
+    {% if chart %}
+    <figure class="chart-figure">
+        <svg class="chart-svg" viewBox="0 0 {{ chart.width }} {{ chart.height }}"
+             role="img" aria-labelledby="chart-title chart-desc" preserveAspectRatio="xMidYMid meet">
+            <title id="chart-title">Best fitness by generation</title>
+            <desc id="chart-desc">
+                Best fitness rose to {{ latest.best_fitness|floatformat:4 }} by generation
+                {{ latest.converged_at }} of {{ latest.generations_run }}. The same values
+                are listed in the table below this chart.
+            </desc>
+
+            {% for tick in chart.y_ticks %}
+            <line class="chart-grid-line" x1="{{ chart.pad_left }}" y1="{{ tick.y }}"
+                  x2="{{ chart.plot_width|add:chart.pad_left }}" y2="{{ tick.y }}"/>
+            <text class="chart-tick" x="{{ chart.pad_left|add:'-10' }}" y="{{ tick.y }}"
+                  text-anchor="end" dominant-baseline="middle">{{ tick.value }}</text>
+            {% endfor %}
+
+            <line class="chart-axis-line" x1="{{ chart.pad_left }}" y1="{{ chart.pad_top }}"
+                  x2="{{ chart.pad_left }}" y2="{{ chart.plot_bottom }}"/>
+
+            {% if chart.single_point %}
+            <circle class="chart-series-point" cx="{{ chart.last_point.x }}"
+                    cy="{{ chart.last_point.y }}" r="5"/>
+            {% else %}
+            <polyline class="chart-series-line" points="{{ chart.polyline }}"/>
+            <circle class="chart-series-point" cx="{{ chart.last_point.x }}"
+                    cy="{{ chart.last_point.y }}" r="4"/>
+            {% endif %}
+
+            <text class="chart-end-label" x="{{ chart.last_point.x }}" y="{{ chart.last_point.y }}"
+                  dx="{{ chart.last_point.dx }}" dy="-8"
+                  text-anchor="{{ chart.last_point.anchor }}">{{ chart.last_point.label }}</text>
+
+            {% for tick in chart.x_ticks %}
+            <text class="chart-tick" x="{{ tick.x }}" y="{{ chart.plot_bottom|add:18 }}"
+                  text-anchor="middle">{{ tick.label }}</text>
+            {% endfor %}
+
+            <text class="chart-axis-title" x="{{ chart.pad_left }}"
+                  y="{{ chart.height|add:'-6' }}">Generation</text>
+        </svg>
+    </figure>
+    <p class="chart-caption">
+        Fitness is best-so-far, so the line only ever rises. It is
+        <code>1 / (1 + penalties)</code>, so 1.0 means a timetable with no clashes
+        and no over-full rooms.
+        {% if latest.generations_run == 1 %}
+        This run found a perfect timetable in its very first generation, so there is
+        a single point rather than a curve. That is a property of the dataset, not
+        of the algorithm: with this many rooms and time slots the problem is easy
+        enough that the starting population already contains a clash-free schedule.
+        Squeeze the problem with
+        <code>manage.py benchmark_ga --rooms 3 --slots 6</code> to see it actually work
+        for its result.
+        {% endif %}
+    </p>
+    {% endif %}
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-table"></i> Fitness by generation</div>
+            <div style="max-height:320px; overflow-y:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Generation</th><th>Best fitness</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for value in latest.history %}
+                        <tr>
+                            <td class="cell-primary">{{ forloop.counter }}</td>
+                            <td>{{ value|floatformat:4 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-bar-chart-steps"></i> Recent runs</div>
+            <table class="data-table">
+                <thead>
+                    <tr><th>When</th><th>Fitness</th><th>Gens</th><th>Time</th></tr>
+                </thead>
+                <tbody>
+                    {% for run in runs %}
+                    <tr>
+                        <td>{{ run.created_at|date:"j M, H:i" }}</td>
+                        <td class="cell-primary">{{ run.best_fitness|floatformat:4 }}</td>
+                        <td>{{ run.generations_run }}</td>
+                        <td>{{ run.runtime_seconds|floatformat:3 }}s</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="kts-card text-center py-5 mb-4">
+    <div class="empty-icon-circle" style="background:var(--kts-blue-tint); color:var(--kts-blue);">
+        <i class="bi bi-graph-up-arrow"></i>
+    </div>
+    <h5 class="empty-title">No runs recorded yet</h5>
+    <p class="empty-lede">Generate a timetable and the convergence curve will appear here.</p>
+    <a href="{% url 'generate' %}" class="btn btn-kts-primary mt-2">Generate Timetable</a>
+</div>
+{% endif %}
+
+{% if baseline %}
+<div class="kts-card mt-4">
+    <div class="kts-card-title"><i class="bi bi-trophy"></i> Against approaches that need no genetic algorithm</div>
+    <p class="card-lede">
+        All three are scored with the same fitness function on the current dataset
+        ({{ baseline.classes }} classes, {{ baseline.rooms }} rooms,
+        {{ baseline.timeslots }} time slots), averaged over {{ baseline.trials }} trials.
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr><th>Approach</th><th>Mean fitness</th><th>Best</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="cell-primary">Random assignment</td>
+                <td>{{ baseline.random_mean|floatformat:4 }}</td>
+                <td>{{ baseline.random_best|floatformat:4 }}</td>
+            </tr>
+            <tr>
+                <td class="cell-primary">Greedy first-fit</td>
+                <td>{{ baseline.greedy_mean|floatformat:4 }}</td>
+                <td>{{ baseline.greedy_best|floatformat:4 }}</td>
+            </tr>
+            {% if latest %}
+            <tr class="winner-row">
+                <td>Genetic algorithm</td>
+                <td>{{ latest.best_fitness|floatformat:4 }}</td>
+                <td>{{ latest.best_fitness|floatformat:4 }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    <p class="chart-caption">
+        On a loosely constrained dataset the greedy baseline also reaches 1.0, and the
+        genetic algorithm earns nothing. Its advantage appears when rooms and time slots
+        are scarce. Run <code>manage.py benchmark_ga --rooms 3 --slots 6</code> to see
+        the two separate.
+    </p>
+</div>
+{% endif %}
+
+<div class="kts-card mt-4">
+    <div class="kts-card-title"><i class="bi bi-sliders"></i> Penalty weights</div>
+    <p class="card-lede">What the fitness function charges for, and why.</p>
+    <table class="data-table">
+        <thead>
+            <tr><th>Violation</th><th>Penalty</th><th>Reasoning</th></tr>
+        </thead>
+        <tbody>
+            {% for name, weight, reason in weights %}
+            <tr>
+                <td class="cell-primary">{{ name }}</td>
+                <td class="cell-accent">{{ weight }}</td>
+                <td>{{ reason }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

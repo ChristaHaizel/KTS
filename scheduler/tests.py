@@ -838,6 +838,115 @@ class LecturerOwnershipTests(TestCase):
         self.assertTrue(Lecturer.objects.filter(pk=self.mine.pk).exists())
 
 
+class PermissionBoundaryTests(TestCase):
+    """Enumerate every route rather than spot-checking the ones I remember.
+
+    A view added later without a decorator shows up here as a failure.
+    """
+
+    ADMIN_ONLY = [
+        '/generate/', '/algorithm/',
+        '/lecturers/', '/lecturers/add/',
+        '/courses/', '/courses/add/',
+        '/rooms/', '/rooms/add/',
+        '/student-groups/', '/student-groups/add/',
+        '/timeslots/', '/timeslots/add/',
+    ]
+    OPEN_TO_ANY_USER = ['/', '/timetable/', '/conflicts/', '/reschedule/']
+
+    def setUp(self):
+        build_dataset()
+        self.lecturer_user = make_lecturer_user('plainuser')
+        self.admin = make_admin('theboss')
+
+    def test_lecturer_is_refused_every_admin_route(self):
+        self.client.force_login(self.lecturer_user)
+        for url in self.ADMIN_ONLY:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertIn(
+                    response.status_code, (302, 403),
+                    f'{url} was reachable by a non-admin',
+                )
+
+    def test_admin_can_reach_every_admin_route(self):
+        self.client.force_login(self.admin)
+        for url in self.ADMIN_ONLY:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_shared_routes_are_open_to_any_user(self):
+        self.client.force_login(self.lecturer_user)
+        for url in self.OPEN_TO_ANY_USER:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_sidebar_hides_admin_sections_from_a_lecturer(self):
+        self.client.force_login(self.lecturer_user)
+        body = self.client.get('/').content.decode()
+        nav = body[body.index('class="sidebar-nav"'):body.index('</div>\n\n<div class="main-wrap"')]
+        for hidden in ['/lecturers/', '/courses/', '/rooms/',
+                       '/student-groups/', '/timeslots/', '/generate/', '/algorithm/']:
+            with self.subTest(link=hidden):
+                self.assertNotIn(f'href="{hidden}"', nav)
+
+    def test_sidebar_shows_admin_sections_to_an_admin(self):
+        self.client.force_login(self.admin)
+        body = self.client.get('/').content.decode()
+        for shown in ['/lecturers/', '/courses/', '/generate/', '/algorithm/']:
+            with self.subTest(link=shown):
+                self.assertIn(f'href="{shown}"', body)
+
+
+class LecturerDashboardTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.lecturer = Lecturer.objects.get(email='l0@example.com')
+        self.user = make_lecturer_user('drdash')
+        self.lecturer.user = self.user
+        self.lecturer.save()
+
+    def test_lecturer_sees_their_own_dashboard(self):
+        self.client.force_login(self.user)
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'scheduler/dashboard_lecturer.html')
+        self.assertEqual(
+            response.context['my_class_count'],
+            TimetableEntry.objects.filter(
+                is_active=True, course__lecturer=self.lecturer
+            ).count(),
+        )
+
+    def test_lecturer_dashboard_hides_department_totals(self):
+        self.client.force_login(self.user)
+        body = self.client.get('/').content.decode()
+        for admin_only in ['Total Lecturers', 'Total Rooms', 'Rooms Available',
+                           'Generate New Timetable']:
+            with self.subTest(text=admin_only):
+                self.assertNotIn(admin_only, body)
+
+    def test_lecturer_dashboard_counts_only_their_own_classes(self):
+        self.client.force_login(self.user)
+        mine = self.client.get('/').context['my_class_count']
+        everything = TimetableEntry.objects.filter(is_active=True).count()
+        self.assertGreater(everything, mine)
+
+    def test_admin_still_gets_the_department_dashboard(self):
+        self.client.force_login(make_admin('dashboss'))
+        response = self.client.get('/')
+        self.assertTemplateUsed(response, 'scheduler/dashboard.html')
+        self.assertIn('total_lecturers', response.context)
+
+    def test_unlinked_account_sees_zero_not_everything(self):
+        self.client.force_login(make_lecturer_user('nolink'))
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['my_class_count'], 0)
+        self.assertIsNone(response.context['lecturer'])
+
+
 class CreateLecturerUsersCommandTests(TestCase):
     def setUp(self):
         build_dataset()

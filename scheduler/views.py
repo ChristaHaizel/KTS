@@ -1,4 +1,4 @@
-﻿from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
@@ -19,21 +19,37 @@ from .forms import LecturerForm, CourseForm, RoomForm, StudentGroupForm, TimeSlo
 
 @login_required
 def dashboard(request):
-    total_courses = Course.objects.count()
-    total_rooms = Room.objects.count()
-    total_lecturers = Lecturer.objects.count()
-    total_entries = TimetableEntry.objects.filter(is_active=True).count()
-    pending_requests = RescheduleRequest.objects.filter(status='PENDING').count()
-    conflicts = detect_conflicts()
-    context = {
-        'total_courses': total_courses,
-        'total_rooms': total_rooms,
-        'total_lecturers': total_lecturers,
-        'total_entries': total_entries,
-        'pending_requests': pending_requests,
-        'conflict_count': len(conflicts),
-    }
-    return render(request, 'scheduler/dashboard.html', context)
+    """Two dashboards behind one URL.
+
+    An administrator runs the department and needs its totals. A lecturer needs
+    their own teaching, and department-wide counts are neither actionable nor
+    theirs to see.
+    """
+    if is_admin(request.user):
+        return render(request, 'scheduler/dashboard.html', {
+            'total_courses': Course.objects.count(),
+            'total_rooms': Room.objects.count(),
+            'total_lecturers': Lecturer.objects.count(),
+            'total_entries': TimetableEntry.objects.filter(is_active=True).count(),
+            'pending_requests': RescheduleRequest.objects.filter(status='PENDING').count(),
+            'conflict_count': len(detect_conflicts()),
+        })
+
+    lecturer = lecturer_for(request.user)
+    my_entries = TimetableEntry.objects.filter(is_active=True)
+    my_entries = my_entries.filter(course__lecturer=lecturer) if lecturer else my_entries.none()
+
+    return render(request, 'scheduler/dashboard_lecturer.html', {
+        'lecturer': lecturer,
+        'my_class_count': my_entries.count(),
+        'my_course_count': Course.objects.filter(lecturer=lecturer).count() if lecturer else 0,
+        'my_pending_count': RescheduleRequest.objects.filter(
+            requested_by=request.user, status='PENDING'
+        ).count(),
+        'next_classes': my_entries.select_related(
+            'course', 'room', 'timeslot', 'student_group'
+        ).order_by('timeslot__start_time')[:5],
+    })
 @login_required
 def timetable_view(request):
     days = ['MON', 'TUE', 'WED', 'THU', 'FRI']
@@ -215,6 +231,7 @@ def reject_reschedule(request, pk):
     return redirect('reschedule')
 
 @login_required
+@admin_required
 def lecturer_list(request):
     lecturers = Lecturer.objects.all().order_by('name')
     return render(request, 'scheduler/lecturers.html', {'lecturers': lecturers})
@@ -234,6 +251,7 @@ def lecturer_edit(request, pk=None):
     return render(request, 'scheduler/lecturer_form.html', {'form': form, 'lecturer': lecturer})
 
 @login_required
+@admin_required
 def course_list(request):
     courses = Course.objects.select_related('lecturer').order_by('code')
     return render(request, 'scheduler/courses.html', {'courses': courses})
@@ -273,6 +291,7 @@ def course_delete(request, pk):
     return render(request, 'scheduler/course_confirm_delete.html', {'course': course})
 
 @login_required
+@admin_required
 def room_list(request):
     rooms = Room.objects.all().order_by('name')
     return render(request, 'scheduler/rooms.html', {'rooms': rooms})
@@ -302,6 +321,7 @@ def room_delete(request, pk):
     return render(request, 'scheduler/room_confirm_delete.html', {'room': room})
 
 @login_required
+@admin_required
 def studentgroup_list(request):
     groups = StudentGroup.objects.all().order_by('name').prefetch_related('courses')
     return render(request, 'scheduler/studentgroups.html', {'groups': groups})
@@ -331,6 +351,7 @@ def studentgroup_delete(request, pk):
     return render(request, 'scheduler/studentgroup_confirm_delete.html', {'group': group})
 
 @login_required
+@admin_required
 def timeslot_list(request):
     timeslots = TimeSlot.objects.all().order_by('day', 'start_time')
     return render(request, 'scheduler/timeslots.html', {'timeslots': timeslots})

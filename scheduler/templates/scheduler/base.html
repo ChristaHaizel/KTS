@@ -701,6 +701,7 @@
         <a href="{% url 'timetable' %}" class="nav-link {% if request.resolver_match.url_name == 'timetable' %}active{% endif %}">
             <i class="bi bi-calendar3"></i> Timetable
         </a>
+        {% if is_admin %}
         <div class="nav-section-label">Data</div>
         <a href="{% url 'lecturers' %}" class="nav-link {% if request.resolver_match.url_name == 'lecturers' or request.resolver_match.url_name == 'lecturer_add' or request.resolver_match.url_name == 'lecturer_edit' %}active{% endif %}">
             <i class="bi bi-person-badge"></i> Lecturers
@@ -717,6 +718,7 @@
         <a href="{% url 'timeslots' %}" class="nav-link {% if request.resolver_match.url_name == 'timeslots' or request.resolver_match.url_name == 'timeslot_add' or request.resolver_match.url_name == 'timeslot_edit' %}active{% endif %}">
             <i class="bi bi-clock"></i> Time Slots
         </a>
+        {% endif %}
         <div class="nav-section-label">Tools</div>
         <a href="{% url 'conflicts' %}" class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}">
             <i class="bi bi-exclamation-triangle"></i> Conflicts

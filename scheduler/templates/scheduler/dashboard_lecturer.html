@@ -1,0 +1,97 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Dashboard - KTS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+{% if not lecturer %}
+<div class="alert alert-warning mb-4">
+    <i class="bi bi-info-circle me-2"></i>
+    Your account is not linked to a lecturer, so it has no classes yet. Ask an
+    administrator to link it on the Lecturers page.
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="bi bi-calendar-check"></i></div>
+            <div class="stat-number">{{ my_class_count }}</div>
+            <div class="stat-label">My scheduled classes</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="bi bi-book"></i></div>
+            <div class="stat-number">{{ my_course_count }}</div>
+            <div class="stat-label">Courses I teach</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="bi bi-hourglass-split"></i></div>
+            <div class="stat-number">{{ my_pending_count }}</div>
+            <div class="stat-label">My pending requests</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-lightning-charge"></i> Quick Actions</div>
+            <a href="{% url 'timetable' %}" class="action-btn primary-action">
+                <div class="action-icon"><i class="bi bi-calendar3"></i></div>
+                <div>
+                    <div>View the Timetable</div>
+                    <div class="action-sub on-primary">Filter it down to your own classes</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'reschedule' %}" class="action-btn">
+                <div class="action-icon success"><i class="bi bi-arrow-left-right"></i></div>
+                <div>
+                    <div>Request a Reschedule</div>
+                    <div class="action-sub">{{ my_pending_count }} of yours awaiting a decision</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'conflicts' %}" class="action-btn">
+                <div class="action-icon danger"><i class="bi bi-exclamation-triangle"></i></div>
+                <div>
+                    <div>Conflict Report</div>
+                    <div class="action-sub">Check the timetable for clashes</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-list-check"></i> My Classes</div>
+            {% if next_classes %}
+            <table class="data-table">
+                <thead>
+                    <tr><th>Course</th><th>When</th><th>Room</th><th>Group</th></tr>
+                </thead>
+                <tbody>
+                    {% for entry in next_classes %}
+                    <tr>
+                        <td class="cell-accent">{{ entry.course.code }}</td>
+                        <td>{{ entry.timeslot }}</td>
+                        <td>{{ entry.room.name }}</td>
+                        <td>{{ entry.student_group.name }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-block">
+                <i class="bi bi-calendar-x"></i>
+                <p>You have no scheduled classes.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

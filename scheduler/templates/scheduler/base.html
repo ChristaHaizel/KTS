@@ -545,6 +545,64 @@
             flex-shrink: 0;
         }
 
+        .pager {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--sp-3);
+            padding: var(--sp-3) 20px;
+            border-top: 1px solid var(--line);
+            font-size: 0.8rem;
+            color: var(--ink-muted);
+        }
+        .pager-links { display: flex; gap: var(--sp-2); }
+        .pager-link {
+            padding: 5px 14px;
+            border-radius: var(--r-pill);
+            border: 1.5px solid var(--line-strong);
+            color: var(--kts-blue);
+            text-decoration: none;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .pager-link:hover { border-color: var(--kts-blue); background: var(--kts-blue-tint); }
+        .pager-link.disabled {
+            color: var(--ink-faint);
+            border-color: var(--line);
+            pointer-events: none;
+        }
+
+        .btn-create-account {
+            border-radius: var(--r-pill);
+            border: 1.5px dashed var(--line-strong);
+            background: transparent;
+            color: var(--ink-faint);
+            font-size: 0.75rem;
+            font-weight: 500;
+            padding: 4px 12px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+        }
+        .btn-create-account:hover {
+            border-color: var(--kts-blue);
+            border-style: solid;
+            color: var(--kts-blue);
+            background: var(--kts-blue-tint);
+        }
+
+        /* Request status. Never colour alone - the badge always carries its label. */
+        .status-badge {
+            display: inline-block;
+            padding: 4px 14px;
+            border-radius: var(--r-pill);
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-badge.pending  { background: var(--warn-bg);    color: var(--warn); }
+        .status-badge.approved { background: var(--success-bg); color: var(--success); }
+        .status-badge.rejected { background: var(--danger-bg);  color: var(--danger); }
+
         /* Day badges (Time Slots) */
         .day-badge {
             display: inline-block;

@@ -1,4 +1,5 @@
 import random
+import re
 from datetime import time
 
 from django.contrib.auth.models import Group, User
@@ -9,8 +10,12 @@ from . import charts
 from .baselines import compare, greedy_schedule, random_schedule
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
-from .forms import TimeSlotForm
-from .genetic_algorithm import fitness, load_problem, run_genetic_algorithm
+from .forms import (
+    CourseForm, LecturerForm, RoomForm, StudentGroupForm, TimeSlotForm,
+)
+from .genetic_algorithm import (
+    count_violations, fitness, load_problem, run_genetic_algorithm,
+)
 from .models import (
     Course, GenerationRun, Lecturer, RescheduleRequest, Room, StudentGroup,
     TimeSlot, TimetableEntry,
@@ -711,6 +716,39 @@ class ChartGeometryTests(TestCase):
     def test_empty_history_has_no_chart(self):
         self.assertIsNone(convergence_chart([]))
 
+    def test_axis_fits_small_values_instead_of_flattening_them(self):
+        """Real fitness on a hard problem is ~0.02. On a fixed 0-1 axis the whole
+        curve collapses onto the baseline and shows nothing."""
+        history = [0.0217, 0.0217, 0.0244, 0.0244]
+        chart = convergence_chart(history)
+        points = [tuple(map(float, p.split(','))) for p in chart['polyline'].split()]
+        ys = [y for _, y in points]
+        # The improvement must occupy a real share of the plot height.
+        self.assertGreater(max(ys) - min(ys), charts.PLOT_HEIGHT * 0.4)
+
+    def test_axis_range_is_reported_for_the_caption(self):
+        chart = convergence_chart([0.0217, 0.0244])
+        self.assertIn('y_low', chart)
+        self.assertIn('y_high', chart)
+        self.assertTrue(chart['improved'])
+
+    def test_flat_history_is_marked_as_not_improved(self):
+        chart = convergence_chart([0.03, 0.03, 0.03])
+        self.assertFalse(chart['improved'])
+        points = [tuple(map(float, p.split(','))) for p in chart['polyline'].split()]
+        # A flat run must still sit inside the plot, not on an edge.
+        for _, y in points:
+            self.assertGreater(y, charts.PAD_TOP)
+            self.assertLess(y, charts.PAD_TOP + charts.PLOT_HEIGHT)
+
+    def test_domain_never_leaves_the_valid_fitness_range(self):
+        for history in ([0.0, 0.0], [1.0, 1.0], [0.99, 1.0], [0.0, 0.001]):
+            with self.subTest(history=history):
+                low, high = charts.y_domain(history)
+                self.assertGreaterEqual(low, 0.0)
+                self.assertLessEqual(high, 1.0)
+                self.assertLessEqual(low, high)
+
 
 class LecturerOwnershipTests(TestCase):
     """A lecturer account may only touch its own classes.
@@ -785,7 +823,7 @@ class LecturerOwnershipTests(TestCase):
             len(entries), TimetableEntry.objects.filter(is_active=True).count()
         )
 
-    def test_lecturer_sees_only_their_own_pending_requests(self):
+    def test_lecturer_sees_only_their_own_requests(self):
         other_user = make_lecturer_user('other')
         self.theirs.user = other_user
         self.theirs.save()
@@ -800,9 +838,12 @@ class LecturerOwnershipTests(TestCase):
         )
 
         self.client.force_login(self.user)
-        pending = self.client.get('/reschedule/').context['pending_requests']
-        self.assertEqual(len(pending), 1)
-        self.assertEqual(pending[0].requested_by, self.user)
+        response = self.client.get('/reschedule/')
+        mine = response.context['my_requests']
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0].requested_by, self.user)
+        # The decision queue is an admin tool and is not built for anyone else.
+        self.assertIsNone(response.context['pending_requests'])
 
     def test_admin_sees_all_pending_requests(self):
         RescheduleRequest.objects.create(
@@ -988,6 +1029,278 @@ class CreateLecturerUsersCommandTests(TestCase):
             self.assertFalse(lecturer.user.is_superuser)
             self.assertFalse(lecturer.user.is_staff)
             self.assertFalse(is_admin(lecturer.user))
+
+
+class RequestOutcomeVisibilityTests(TestCase):
+    """A requester who cannot see the outcome has no way to learn it."""
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.lecturer = Lecturer.objects.get(email='l0@example.com')
+        self.user = make_lecturer_user('seer')
+        self.lecturer.user = self.user
+        self.lecturer.save()
+        self.entry = TimetableEntry.objects.filter(
+            is_active=True, course__lecturer=self.lecturer
+        ).first()
+        self.free_slot = (TimeSlot.objects
+                          .exclude(pk__in=TimetableEntry.objects.filter(is_active=True)
+                                   .values_list('timeslot_id', flat=True))
+                          .first())
+        self.admin = make_admin('decider3')
+
+    def _make_request(self):
+        return RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            requested_room=self.entry.room, reason='needed', requested_by=self.user,
+        )
+
+    def test_requester_sees_a_decided_request(self):
+        req = self._make_request()
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+
+        self.client.force_login(self.user)
+        response = self.client.get('/reschedule/')
+        mine = list(response.context['my_requests'])
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0].status, 'APPROVED')
+        self.assertContains(response, 'Approved')
+
+    def test_requester_sees_a_rejected_request(self):
+        req = self._make_request()
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/reject/')
+
+        self.client.force_login(self.user)
+        response = self.client.get('/reschedule/')
+        self.assertEqual(list(response.context['my_requests'])[0].status, 'REJECTED')
+        self.assertContains(response, 'Rejected')
+
+    def test_outcome_names_the_decider(self):
+        req = self._make_request()
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get('/reschedule/'), self.admin.username)
+
+    def test_my_requests_are_only_mine(self):
+        self._make_request()
+        other = make_lecturer_user('someoneelse')
+        RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            reason='theirs', requested_by=other,
+        )
+        self.client.force_login(self.user)
+        mine = self.client.get('/reschedule/').context['my_requests']
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0].requested_by, self.user)
+
+    def test_lecturer_gets_no_pending_queue(self):
+        """The decision queue is an admin tool, not something to show requesters."""
+        self._make_request()
+        self.client.force_login(self.user)
+        self.assertIsNone(self.client.get('/reschedule/').context['pending_requests'])
+
+
+class AccountProvisioningTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        self.lecturer = Lecturer.objects.get(email='l0@example.com')
+        self.admin = make_admin('provisioner')
+
+    def test_admin_can_create_an_account_from_the_ui(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            f'/lecturers/{self.lecturer.pk}/create-account/', follow=True
+        )
+        self.assertEqual(response.status_code, 200)
+        self.lecturer.refresh_from_db()
+        self.assertIsNotNone(self.lecturer.user)
+        self.assertFalse(self.lecturer.user.is_superuser)
+        self.assertFalse(is_admin(self.lecturer.user))
+
+    def test_the_password_is_shown_once_and_works(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            f'/lecturers/{self.lecturer.pk}/create-account/', follow=True
+        )
+        # Django escapes the message, so the quotes arrive as &quot;.
+        body = response.content.decode()
+        match = re.search(r'password &quot;([^&]+)&quot;', body)
+        self.assertIsNotNone(match, 'the generated password was not shown')
+
+        self.lecturer.refresh_from_db()
+        self.assertTrue(
+            self.client.login(
+                username=self.lecturer.user.username, password=match.group(1)
+            )
+        )
+
+    def test_refuses_a_second_account(self):
+        self.lecturer.user = make_lecturer_user('already')
+        self.lecturer.save()
+        self.client.force_login(self.admin)
+        self.client.post(f'/lecturers/{self.lecturer.pk}/create-account/')
+        self.lecturer.refresh_from_db()
+        self.assertEqual(self.lecturer.user.username, 'already')
+
+    def test_requires_post(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(f'/lecturers/{self.lecturer.pk}/create-account/')
+        self.assertEqual(response.status_code, 405)
+
+    def test_lecturer_cannot_provision_accounts(self):
+        self.client.force_login(make_lecturer_user('nobody2'))
+        response = self.client.post(f'/lecturers/{self.lecturer.pk}/create-account/')
+        self.assertIn(response.status_code, (302, 403))
+        self.lecturer.refresh_from_db()
+        self.assertIsNone(self.lecturer.user)
+
+
+class FormTests(TestCase):
+    """The forms had no coverage at all until now."""
+
+    def setUp(self):
+        self.lecturer = Lecturer.objects.create(name='L', email='l@example.com')
+
+    def test_course_form_accepts_valid_input(self):
+        form = CourseForm(data={
+            'code': 'CS 999', 'name': 'Advanced Things',
+            'expected_students': 40, 'lecturer': self.lecturer.pk,
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_course_code_must_be_unique(self):
+        Course.objects.create(code='CS 999', name='First', expected_students=10)
+        form = CourseForm(data={
+            'code': 'CS 999', 'name': 'Second', 'expected_students': 10,
+            'lecturer': self.lecturer.pk,
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('code', form.errors)
+
+    def test_course_allows_no_lecturer(self):
+        form = CourseForm(data={
+            'code': 'CS 001', 'name': 'Unassigned', 'expected_students': 10, 'lecturer': '',
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_lecturer_email_must_be_unique(self):
+        form = LecturerForm(data={'name': 'Clone', 'email': 'l@example.com'})
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+
+    def test_lecturer_email_must_be_an_email(self):
+        form = LecturerForm(data={'name': 'X', 'email': 'not-an-email'})
+        self.assertFalse(form.is_valid())
+
+    def test_room_name_must_be_unique(self):
+        Room.objects.create(name='Lab 1', capacity=30)
+        form = RoomForm(data={'name': 'Lab 1', 'capacity': 40})
+        self.assertFalse(form.is_valid())
+        self.assertIn('name', form.errors)
+
+    def test_room_capacity_is_required(self):
+        form = RoomForm(data={'name': 'Lab 2', 'capacity': ''})
+        self.assertFalse(form.is_valid())
+
+    def test_student_group_accepts_courses(self):
+        c1 = Course.objects.create(code='A', name='A', expected_students=10)
+        c2 = Course.objects.create(code='B', name='B', expected_students=10)
+        form = StudentGroupForm(data={'name': 'Level 100', 'courses': [c1.pk, c2.pk]})
+        self.assertTrue(form.is_valid(), form.errors)
+        group = form.save()
+        self.assertEqual(group.courses.count(), 2)
+
+    def test_student_group_allows_no_courses(self):
+        form = StudentGroupForm(data={'name': 'Empty', 'courses': []})
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+class PaginationTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_admin('pager'))
+        for i in range(60):
+            Room.objects.create(name=f'Room {i:03d}', capacity=30)
+
+    def test_list_is_paginated(self):
+        page = self.client.get('/rooms/').context['rooms']
+        self.assertEqual(len(page), 25)
+        self.assertTrue(page.has_next())
+
+    def test_record_count_reports_the_total_not_the_page(self):
+        response = self.client.get('/rooms/')
+        self.assertEqual(response.context['total_count'], 60)
+        self.assertContains(response, '60 room(s) on record')
+
+    def test_second_page_continues(self):
+        page = self.client.get('/rooms/?page=2').context['rooms']
+        self.assertEqual(page.number, 2)
+        self.assertTrue(page.has_previous())
+
+    def test_out_of_range_page_falls_back(self):
+        page = self.client.get('/rooms/?page=999').context['rooms']
+        self.assertEqual(page.number, page.paginator.num_pages)
+
+    def test_garbage_page_does_not_error(self):
+        self.assertEqual(self.client.get('/rooms/?page=abc').status_code, 200)
+
+
+class GenerationRunPruningTests(TestCase):
+    def test_prune_keeps_only_the_most_recent(self):
+        for i in range(GenerationRun.KEEP_RUNS + 15):
+            GenerationRun.objects.create(
+                generations_run=1, best_fitness=0.5, entries_created=1,
+                runtime_seconds=0.01, history=[0.5],
+            )
+        GenerationRun.prune()
+        self.assertEqual(GenerationRun.objects.count(), GenerationRun.KEEP_RUNS)
+
+    def test_prune_is_safe_when_under_the_cap(self):
+        GenerationRun.objects.create(
+            generations_run=1, best_fitness=0.5, entries_created=1,
+            runtime_seconds=0.01, history=[0.5],
+        )
+        GenerationRun.prune()
+        self.assertEqual(GenerationRun.objects.count(), 1)
+
+
+class WeightSensitivityTests(TestCase):
+    def setUp(self):
+        build_dataset()
+
+    def test_violations_are_counted_independently_of_weights(self):
+        enrollments, rooms, timeslots = load_problem()
+        group, course = enrollments[0]
+        clashing = [
+            {'course': course, 'group': group, 'room': rooms[0], 'timeslot': timeslots[0]},
+            {'course': course, 'group': group, 'room': rooms[0], 'timeslot': timeslots[0]},
+        ]
+        counts = count_violations(clashing)
+        self.assertEqual(counts['room'], 1)
+        self.assertEqual(counts['group'], 1)
+
+    def test_weights_change_the_score_but_not_the_violations(self):
+        enrollments, rooms, timeslots = load_problem()
+        group, course = enrollments[0]
+        clashing = [
+            {'course': course, 'group': group, 'room': rooms[0], 'timeslot': timeslots[0]},
+            {'course': course, 'group': group, 'room': rooms[0], 'timeslot': timeslots[0]},
+        ]
+        heavy = fitness(clashing, {'room': 100, 'lecturer': 100, 'group': 100, 'capacity': 100})
+        light = fitness(clashing, {'room': 1, 'lecturer': 1, 'group': 1, 'capacity': 1})
+        self.assertLess(heavy, light)
+        self.assertEqual(count_violations(clashing), count_violations(clashing))
+
+    def test_run_accepts_custom_weights(self):
+        result = run_genetic_algorithm(
+            weights={'room': 1, 'lecturer': 1, 'group': 1, 'capacity': 0}
+        )
+        self.assertTrue(result['success'])
+        self.assertIn('violations', result)
 
 
 class SmokeTests(TestCase):

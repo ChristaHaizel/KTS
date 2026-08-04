@@ -55,7 +55,13 @@ class Course(models.Model):
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=200)
     expected_students = models.IntegerField(default=30)
-    lecturer = models.ForeignKey(Lecturer, on_delete=models.SET_NULL, null=True)
+    # blank=True as well as null=True: SET_NULL means deleting a lecturer leaves
+    # their courses unassigned, and without blank the form then refuses to save
+    # those courses at all until someone is assigned - so the delete produces
+    # rows that cannot be edited.
+    lecturer = models.ForeignKey(
+        Lecturer, on_delete=models.SET_NULL, null=True, blank=True
+    )
 
     def __str__(self):
         return f"{self.code} - {self.name}"
@@ -134,11 +140,22 @@ class GenerationRun(models.Model):
     # Best fitness at the end of each generation, oldest first.
     history = models.JSONField(default=list)
 
+    # Only the most recent runs are ever displayed, and each row carries up to
+    # GENERATIONS floats, so the table is trimmed rather than grown forever.
+    KEEP_RUNS = 50
+
     class Meta:
         ordering = ['-created_at']
 
     def __str__(self):
         return f"Run {self.created_at:%Y-%m-%d %H:%M} - fitness {self.best_fitness:.4f}"
+
+    @classmethod
+    def prune(cls):
+        """Delete all but the most recent KEEP_RUNS rows."""
+        keep = list(cls.objects.values_list('pk', flat=True)[:cls.KEEP_RUNS])
+        deleted, _ = cls.objects.exclude(pk__in=keep).delete()
+        return deleted
 
     @property
     def converged_at(self):

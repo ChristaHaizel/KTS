@@ -17,33 +17,59 @@ PENALTY_LECTURER_CLASH = 10
 PENALTY_GROUP_CLASH = 5
 PENALTY_OVER_CAPACITY = 2
 
+DEFAULT_WEIGHTS = {
+    'room': PENALTY_ROOM_CLASH,
+    'lecturer': PENALTY_LECTURER_CLASH,
+    'group': PENALTY_GROUP_CLASH,
+    'capacity': PENALTY_OVER_CAPACITY,
+}
 
-def fitness(individual):
-    """Score a candidate timetable in (0, 1]. 1.0 means no penalties at all."""
-    penalties = 0
-    seen_room_slots = {}
-    seen_lecturer_slots = {}
-    seen_group_slots = {}
+
+def count_violations(individual):
+    """How many of each constraint a candidate breaks.
+
+    Weight-independent, so results from differently weighted runs can be
+    compared. Fitness cannot: it is defined by the weights, so a lower score
+    under one weighting says nothing about a score under another.
+    """
+    counts = {'room': 0, 'lecturer': 0, 'group': 0, 'capacity': 0}
+    seen_room_slots = set()
+    seen_lecturer_slots = set()
+    seen_group_slots = set()
+
     for gene in individual:
         rs_key = (gene['timeslot'].id, gene['room'].id)
         if rs_key in seen_room_slots:
-            penalties += PENALTY_ROOM_CLASH
-        seen_room_slots[rs_key] = True
+            counts['room'] += 1
+        seen_room_slots.add(rs_key)
 
         if gene['course'].lecturer:
             lec_key = (gene['timeslot'].id, gene['course'].lecturer.id)
             if lec_key in seen_lecturer_slots:
-                penalties += PENALTY_LECTURER_CLASH
-            seen_lecturer_slots[lec_key] = True
+                counts['lecturer'] += 1
+            seen_lecturer_slots.add(lec_key)
 
         grp_key = (gene['timeslot'].id, gene['group'].id)
         if grp_key in seen_group_slots:
-            penalties += PENALTY_GROUP_CLASH
-        seen_group_slots[grp_key] = True
+            counts['group'] += 1
+        seen_group_slots.add(grp_key)
 
         if gene['room'].capacity < gene['course'].expected_students:
-            penalties += PENALTY_OVER_CAPACITY
+            counts['capacity'] += 1
 
+    return counts
+
+
+def fitness(individual, weights=None):
+    """Score a candidate timetable in (0, 1]. 1.0 means no penalties at all."""
+    w = weights or DEFAULT_WEIGHTS
+    counts = count_violations(individual)
+    penalties = (
+        counts['room'] * w['room']
+        + counts['lecturer'] * w['lecturer']
+        + counts['group'] * w['group']
+        + counts['capacity'] * w['capacity']
+    )
     return 1 / (1 + penalties)
 
 
@@ -66,7 +92,7 @@ def load_problem():
     )
 
 
-def run_genetic_algorithm():
+def run_genetic_algorithm(weights=None):
     enrollments, rooms, timeslots = load_problem()
 
     if not enrollments or not rooms or not timeslots:
@@ -134,7 +160,7 @@ def run_genetic_algorithm():
         # re-evaluates the whole population every comparison, which is what made this
         # slow enough to blow the HTTP timeout on real data.
         scored = sorted(
-            ((fitness(ind), ind) for ind in population),
+            ((fitness(ind, weights), ind) for ind in population),
             key=lambda pair: pair[0],
             reverse=True,
         )
@@ -195,6 +221,7 @@ def run_genetic_algorithm():
             'entries_created': created,
             'dropped': dropped,
             'fitness': best_fitness,
+            'violations': count_violations(clean_best),
             'history': history,
             'generations_run': len(history),
             'runtime_seconds': time.perf_counter() - started_at,

@@ -1,28 +1,9 @@
-import secrets
-import string
-
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
+from scheduler.accounts import derive_username, generate_password
 from scheduler.models import Lecturer
-
-# Ambiguous characters removed: these get read aloud and typed by hand.
-ALPHABET = ''.join(c for c in string.ascii_letters + string.digits if c not in 'Il1O0')
-
-
-def generate_password(length=14):
-    return ''.join(secrets.choice(ALPHABET) for _ in range(length))
-
-
-def derive_username(email, taken):
-    base = email.split('@')[0].lower().replace('.', '') or 'lecturer'
-    candidate = base
-    suffix = 2
-    while candidate in taken:
-        candidate = f'{base}{suffix}'
-        suffix += 1
-    return candidate
 
 
 class Command(BaseCommand):

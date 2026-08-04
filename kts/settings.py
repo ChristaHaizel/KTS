@@ -176,6 +176,45 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
 
+# Logging. Without this, an exception in production is a 500 page for the user and
+# silence for everyone else. Hosts capture stdout, so a console handler is enough.
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': LOG_LEVEL,
+    },
+    'loggers': {
+        # Unhandled exceptions, with the traceback rather than just the status line.
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'scheduler': {
+            'handlers': ['console'],
+            'level': LOG_LEVEL,
+            'propagate': False,
+        },
+    },
+}
+
+
 # Production hardening. SECURE_PROXY_SSL_HEADER is required behind Render's proxy —
 # without it SECURE_SSL_REDIRECT loops forever and the site is unreachable.
 if not DEBUG:

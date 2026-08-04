@@ -5,7 +5,13 @@ same problem and the same fitness function. These two are the comparison.
 """
 import random
 
+from django.core.cache import cache
+from django.db.models import Count
+
 from .genetic_algorithm import fitness, load_problem
+from .models import Room, StudentGroup, TimeSlot
+
+CACHE_SECONDS = 15 * 60
 
 
 def random_schedule(enrollments, rooms, timeslots):
@@ -80,12 +86,32 @@ def greedy_schedule(enrollments, rooms, timeslots):
     return individual
 
 
-def compare(trials=5):
+def cache_key():
+    """Changes whenever the shape of the problem does.
+
+    Enough for a baseline comparison: the numbers only mean anything relative
+    to a given set of classes, rooms and slots.
+    """
+    return 'baselines:{}:{}:{}'.format(
+        StudentGroup.objects.aggregate(n=Count('courses'))['n'] or 0,
+        Room.objects.count(),
+        TimeSlot.objects.count(),
+    )
+
+
+def compare(trials=5, use_cache=True):
     """Score the random and greedy baselines on the current problem.
 
-    Returns None when there is nothing to schedule, so callers can say so
-    rather than reporting a meaningless zero.
+    Cached because this builds 2 x trials schedules and the Algorithm page would
+    otherwise pay for it on every render. Returns None when there is nothing to
+    schedule, so callers can say so rather than reporting a meaningless zero.
     """
+    key = cache_key()
+    if use_cache:
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+
     enrollments, rooms, timeslots = load_problem()
     if not enrollments or not rooms or not timeslots:
         return None
@@ -97,7 +123,7 @@ def compare(trials=5):
         fitness(greedy_schedule(enrollments, rooms, timeslots)) for _ in range(trials)
     ]
 
-    return {
+    result = {
         'classes': len(enrollments),
         'rooms': len(rooms),
         'timeslots': len(timeslots),
@@ -107,3 +133,6 @@ def compare(trials=5):
         'greedy_mean': sum(greedy_scores) / len(greedy_scores),
         'greedy_best': max(greedy_scores),
     }
+    if use_cache:
+        cache.set(key, result, CACHE_SECONDS)
+    return result

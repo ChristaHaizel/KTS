@@ -17,17 +17,35 @@ PAD_BOTTOM = 44
 PLOT_WIDTH = WIDTH - PAD_LEFT - PAD_RIGHT
 PLOT_HEIGHT = HEIGHT - PAD_TOP - PAD_BOTTOM
 
-Y_TICKS = [0.0, 0.25, 0.5, 0.75, 1.0]
-
-
 def _x(index, count):
     if count <= 1:
         return PAD_LEFT
     return PAD_LEFT + (index / (count - 1)) * PLOT_WIDTH
 
 
-def _y(value):
-    return PAD_TOP + (1 - value) * PLOT_HEIGHT
+def y_domain(history):
+    """The visible fitness range, fitted to the data rather than fixed at 0-1.
+
+    Fitness is 1 / (1 + penalties), so on a hard problem every value sits near
+    zero - 0.02 to 0.03 is typical. Drawn against a fixed 0-1 axis the whole
+    curve flattens onto the baseline and the convergence it is meant to show
+    becomes invisible. The axis therefore fits the data and the tick labels
+    state the real numbers, so a small improvement reads as small rather than
+    being hidden.
+    """
+    low, high = min(history), max(history)
+    if high == low:
+        # A run that never improved. Centre it so the flat line is legible as
+        # a flat line, instead of collapsing onto an edge.
+        pad = max(high * 0.5, 0.01)
+        return max(0.0, low - pad), min(1.0, high + pad)
+    pad = (high - low) * 0.15
+    return max(0.0, low - pad), min(1.0, high + pad)
+
+
+def _tick_label(value):
+    """Enough precision to distinguish the values actually on screen."""
+    return f'{value:.4f}' if value < 0.1 else f'{value:.2f}'
 
 
 def convergence_chart(history):
@@ -40,7 +58,14 @@ def convergence_chart(history):
         return None
 
     count = len(history)
+    low, high = y_domain(history)
+    span = high - low or 1.0
+
+    def _y(value):
+        return PAD_TOP + (1 - (value - low) / span) * PLOT_HEIGHT
+
     points = [(_x(i, count), _y(v)) for i, v in enumerate(history)]
+    y_ticks = [low + (high - low) * f for f in (0.0, 0.25, 0.5, 0.75, 1.0)]
 
     # A handful of x labels regardless of how many generations ran.
     if count == 1:
@@ -69,9 +94,12 @@ def convergence_chart(history):
             'dx': -10 if points[-1][0] > PAD_LEFT + PLOT_WIDTH * 0.85 else 10,
         },
         'y_ticks': [
-            {'value': f'{t:.2f}', 'y': _y(t)} for t in Y_TICKS
+            {'value': _tick_label(t), 'y': _y(t)} for t in y_ticks
         ],
         'x_ticks': [
             {'label': str(i + 1), 'x': _x(i, count)} for i in tick_indexes
         ],
+        'y_low': _tick_label(low),
+        'y_high': _tick_label(high),
+        'improved': max(history) > min(history),
     }

@@ -6,6 +6,9 @@ from scheduler.genetic_algorithm import run_genetic_algorithm
 from scheduler.models import Room, TimeSlot
 
 
+MIN_SENSITIVITY_TRIALS = 20
+
+
 class _Rollback(Exception):
     """Raised to undo everything a benchmark touched."""
 
@@ -30,6 +33,13 @@ class Command(BaseCommand):
             '--slots', type=int, default=None,
             help='Benchmark against only this many time slots.',
         )
+        parser.add_argument(
+            '--sensitivity', action='store_true',
+            help=(
+                'Re-run under several penalty weightings and report the violations '
+                'each produces, to show whether the result depends on the weights.'
+            ),
+        )
 
     def handle(self, *args, **options):
         try:
@@ -38,6 +48,76 @@ class Command(BaseCommand):
                 raise _Rollback()
         except _Rollback:
             self.stdout.write('\nAll benchmark writes rolled back.')
+
+    def _sensitivity(self, trials):
+        """Does the outcome actually depend on the penalty weights?
+
+        Violations are counted rather than fitness compared: fitness is defined
+        by the weights, so scores from different weightings are not comparable.
+        """
+        weightings = [
+            ('default 10/10/5/2', {'room': 10, 'lecturer': 10, 'group': 5, 'capacity': 2}),
+            ('flat 1/1/1/1', {'room': 1, 'lecturer': 1, 'group': 1, 'capacity': 1}),
+            ('hard only 10/10/10/0', {'room': 10, 'lecturer': 10, 'group': 10, 'capacity': 0}),
+            ('capacity-led 1/1/1/10', {'room': 1, 'lecturer': 1, 'group': 1, 'capacity': 10}),
+            ('extreme 100/100/50/1', {'room': 100, 'lecturer': 100, 'group': 50, 'capacity': 1}),
+        ]
+
+        # The search is stochastic and the differences here are small, so a
+        # handful of runs produces orderings that reverse on the next attempt.
+        if trials < MIN_SENSITIVITY_TRIALS:
+            self.stdout.write(self.style.WARNING(
+                f'{trials} trials is too few to separate these weightings: run-to-run '
+                f'variance is larger than the differences between them, and an '
+                f'apparent winner here will not survive a rerun. Use --trials '
+                f'{MIN_SENSITIVITY_TRIALS} or more before believing any of it.\n'
+            ))
+
+        self.stdout.write('Mean violations over '
+                          f'{trials} runs, by penalty weighting:\n')
+        self.stdout.write(
+            f"{'Weighting':<24}{'room':>7}{'lect':>7}{'group':>7}{'cap':>7}{'total':>8}"
+        )
+        self.stdout.write('-' * 60)
+
+        totals = []
+        for label, weights in weightings:
+            runs = [run_genetic_algorithm(weights=weights) for _ in range(trials)]
+            runs = [r for r in runs if r['success']]
+            if not runs:
+                self.stdout.write(f'{label:<24}  (no successful run)')
+                continue
+            mean = {
+                key: sum(r['violations'][key] for r in runs) / len(runs)
+                for key in ('room', 'lecturer', 'group', 'capacity')
+            }
+            total = sum(mean.values())
+            totals.append(total)
+            self.stdout.write(
+                f"{label:<24}{mean['room']:>7.1f}{mean['lecturer']:>7.1f}"
+                f"{mean['group']:>7.1f}{mean['capacity']:>7.1f}{total:>8.1f}"
+            )
+
+        if len(totals) > 1:
+            spread = max(totals) - min(totals)
+            self.stdout.write('')
+            if trials < MIN_SENSITIVITY_TRIALS:
+                self.stdout.write(self.style.WARNING(
+                    f'Spread {spread:.1f}, but with only {trials} trials that is '
+                    'within noise. No conclusion either way.'
+                ))
+            elif spread < 0.5:
+                self.stdout.write(self.style.WARNING(
+                    f'Total violations vary by only {spread:.1f} across every '
+                    'weighting. On this dataset the weights make no practical '
+                    'difference - the search finds the same quality of timetable '
+                    'whatever they are, so the exact numbers are not load-bearing.'
+                ))
+            else:
+                self.stdout.write(self.style.SUCCESS(
+                    f'Total violations vary by {spread:.1f} across weightings, so '
+                    'the choice of weights does change the timetable produced.'
+                ))
 
     def _benchmark(self, options):
         trials = options['trials']
@@ -50,6 +130,10 @@ class Command(BaseCommand):
         if options['slots'] is not None:
             keep = list(TimeSlot.objects.values_list('pk', flat=True)[:options['slots']])
             TimeSlot.objects.exclude(pk__in=keep).delete()
+
+        if options['sensitivity']:
+            self._sensitivity(trials)
+            return
 
         baseline = compare(trials=trials)
         if baseline is None:

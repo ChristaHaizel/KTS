@@ -63,8 +63,9 @@
     </div>
 
     <div class="col-md-7">
-        <div class="kts-card">
-            <div class="kts-card-title"><i class="bi bi-clock-history"></i> Pending Requests</div>
+        {% if is_admin %}
+        <div class="kts-card mb-4">
+            <div class="kts-card-title"><i class="bi bi-clock-history"></i> Awaiting a Decision</div>
             {% if pending_requests %}
                 {% for req in pending_requests %}
                 <div class="request-card">
@@ -106,6 +107,44 @@
                 <div class="empty-block">
                     <i class="bi bi-inbox"></i>
                     <p>No pending requests at the moment.</p>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-journal-text"></i> My Requests</div>
+            {% if my_requests %}
+                {% for req in my_requests %}
+                <div class="request-card">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="course-tag">{{ req.entry.course.code }} — {{ req.entry.course.name }}</div>
+                            <div class="meta">
+                                <i class="bi bi-arrow-right"></i>
+                                {{ req.entry.timeslot }} to <strong>{{ req.requested_timeslot }}</strong>
+                                {% if req.requested_room %} in {{ req.requested_room.name }}{% endif %}
+                            </div>
+                            <div class="meta faint mt-1">{{ req.reason }}</div>
+                            <div class="meta faint">
+                                Submitted {{ req.created_at|date:"j M Y, H:i" }}
+                                {% if req.decided_at %}
+                                    &middot; {{ req.get_status_display|lower }}
+                                    {% if req.decided_by %}by {{ req.decided_by.username }}{% endif %}
+                                    on {{ req.decided_at|date:"j M Y, H:i" }}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="status-badge {{ req.status|lower }} flex-shrink-0">
+                            {{ req.get_status_display }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-block">
+                    <i class="bi bi-journal"></i>
+                    <p>You have not submitted any requests yet.</p>
                 </div>
             {% endif %}
         </div>

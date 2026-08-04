@@ -3,7 +3,7 @@
 {% block page_title %}Lecturers{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div class="record-count">{{ lecturers|length }} lecturer(s) on record</div>
+    <div class="record-count">{{ total_count }} lecturer(s) on record</div>
     <a href="{% url 'lecturer_add' %}" class="btn btn-kts-primary">
         <i class="bi bi-plus-lg me-1"></i> Add Lecturer
     </a>
@@ -29,7 +29,13 @@
                         {% if lecturer.user %}
                             <span class="day-badge">{{ lecturer.user.username }}</span>
                         {% else %}
-                            <span class="text-faint">No account</span>
+                            <form method="post" action="{% url 'lecturer_create_account' lecturer.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-create-account"
+                                        title="Create a login account for {{ lecturer.name }}">
+                                    <i class="bi bi-person-plus me-1"></i>Create account
+                                </button>
+                            </form>
                         {% endif %}
                     </td>
                     <td>
@@ -54,5 +60,6 @@
             </tbody>
         </table>
     </div>
+    {% include 'scheduler/_pager.html' with page=lecturers %}
 </div>
 {% endblock %}

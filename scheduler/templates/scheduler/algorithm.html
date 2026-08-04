@@ -77,6 +77,14 @@
         Fitness is best-so-far, so the line only ever rises. It is
         <code>1 / (1 + penalties)</code>, so 1.0 means a timetable with no clashes
         and no over-full rooms.
+        The vertical axis spans {{ chart.y_low }} to {{ chart.y_high }} rather than
+        starting at zero, because on a hard problem every value sits near zero and a
+        full-height axis would flatten the curve into a straight line.
+        {% if not chart.improved %}
+        This run never improved on its starting population: the best schedule in
+        generation one was still the best when the search gave up, which is why the
+        line is flat.
+        {% endif %}
         {% if latest.generations_run == 1 %}
         This run found a perfect timetable in its very first generation, so there is
         a single point rather than a curve. That is a property of the dataset, not

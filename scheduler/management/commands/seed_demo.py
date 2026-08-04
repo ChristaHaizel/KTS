@@ -77,6 +77,16 @@ class Command(BaseCommand):
             action='store_true',
             help='Delete all scheduler data before seeding.',
         )
+        parser.add_argument(
+            '--tight',
+            action='store_true',
+            help=(
+                'Seed a scarce version of the problem: 3 rooms and 6 time slots. '
+                'The generous default is solved perfectly in one generation, which '
+                'makes the convergence curve a single point and leaves the genetic '
+                'algorithm indistinguishable from greedy first-fit.'
+            ),
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -90,12 +100,22 @@ class Command(BaseCommand):
             Lecturer.objects.all().delete()
             self.stdout.write(self.style.WARNING('Flushed all scheduler data.'))
 
+        tight = options['tight']
+        # 3 rooms x 4 slots = 12 room-slot pairs for 15 classes, so a perfect
+        # timetable is provably impossible and the search cannot luck into one
+        # from its starting population. A merely small problem is not enough:
+        # 3 x 6 = 18 pairs still admits a perfect answer and the generator
+        # sometimes finds it in generation one, which shows nothing.
+        rooms = ROOMS[:3] if tight else ROOMS
+        days = DAYS[:2] if tight else DAYS
+        periods = PERIODS[:2] if tight else PERIODS
+
         lecturers = []
         for name, email in LECTURERS:
             lecturer, _ = Lecturer.objects.get_or_create(email=email, defaults={'name': name})
             lecturers.append(lecturer)
 
-        for name, capacity in ROOMS:
+        for name, capacity in rooms:
             Room.objects.get_or_create(name=name, defaults={'capacity': capacity})
 
         courses = {}
@@ -114,8 +134,8 @@ class Command(BaseCommand):
             group, _ = StudentGroup.objects.get_or_create(name=group_name)
             group.courses.set([courses[c] for c in course_codes])
 
-        for day in DAYS:
-            for start, end in PERIODS:
+        for day in days:
+            for start, end in periods:
                 TimeSlot.objects.get_or_create(day=day, start_time=start, end_time=end)
 
         self.stdout.write(self.style.SUCCESS(
@@ -125,3 +145,10 @@ class Command(BaseCommand):
             f'{StudentGroup.objects.count()} groups, '
             f'{TimeSlot.objects.count()} time slots.'
         ))
+        if tight:
+            self.stdout.write(self.style.WARNING(
+                'Tight dataset: there are fewer room-slot pairs than classes, so a '
+                'perfect timetable is impossible and the generator has to work for '
+                'its score. Expect conflicts to remain and fitness to stay below 1.0 '
+                '- that is the point, not a failure.'
+            ))

@@ -3,7 +3,7 @@
 {% block page_title %}Student Groups{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
-    <div class="record-count">{{ groups|length }} student group(s) on record</div>
+    <div class="record-count">{{ total_count }} student group(s) on record</div>
     <a href="{% url 'studentgroup_add' %}" class="btn btn-kts-primary">
         <i class="bi bi-plus-lg me-1"></i> Add Student Group
     </a>
@@ -52,5 +52,6 @@
             </tbody>
         </table>
     </div>
+    {% include 'scheduler/_pager.html' with page=groups %}
 </div>
 {% endblock %}

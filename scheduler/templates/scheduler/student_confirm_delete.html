@@ -1,0 +1,32 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Delete Student - KTS{% endblock %}
+{% block page_title %}Delete Student{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title danger">
+                <i class="bi bi-exclamation-triangle"></i> Delete {{ student.name }}?
+            </div>
+            <p class="card-lede">
+                This will permanently remove <strong>{{ student.student_id }} - {{ student.name }}</strong>
+                from the system.
+                {% if student.user %}
+                    Their login account ({{ student.user.username }}) will remain but will
+                    no longer be attached to a student, so it will show no timetable.
+                {% endif %}
+                This cannot be undone.
+            </p>
+            <form method="post">
+                {% csrf_token %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn-danger-kts">
+                        <i class="bi bi-trash me-1"></i> Delete Student
+                    </button>
+                    <a href="{% url 'students' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

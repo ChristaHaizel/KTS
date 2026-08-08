@@ -4,7 +4,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from scheduler.models import (
-    Course, Lecturer, RescheduleRequest, Room, StudentGroup, TimeSlot, TimetableEntry,
+    Course, Lecturer, Notification, RescheduleRequest, Room, Student, StudentGroup,
+    TimeSlot, TimetableEntry,
 )
 
 LECTURERS = [
@@ -58,6 +59,18 @@ GROUPS = [
     ('CS Level 400', ['CS 451', 'CS 453', 'CS 455', 'CS 457', 'CS 459']),
 ]
 
+# (student id, name, group name)
+STUDENTS = [
+    ('20512001', 'Ama Serwaa', 'CS Level 100'),
+    ('20512002', 'Kojo Amankwah', 'CS Level 100'),
+    ('20412003', 'Abena Frimpong', 'CS Level 200'),
+    ('20412004', 'Yaw Boadu', 'CS Level 200'),
+    ('20312005', 'Esi Quartey', 'CS Level 300'),
+    ('20312006', 'Kwesi Appiah', 'CS Level 300'),
+    ('20212007', 'Adjoa Mensimah', 'CS Level 400'),
+    ('20212008', 'Nana Yaw Osei', 'CS Level 400'),
+]
+
 DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
 PERIODS = [
     (time(8, 0), time(10, 0)),
@@ -91,6 +104,8 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         if options['flush']:
+            Notification.objects.all().delete()
+            Student.objects.all().delete()
             RescheduleRequest.objects.all().delete()
             TimetableEntry.objects.all().delete()
             StudentGroup.objects.all().delete()
@@ -130,9 +145,17 @@ class Command(BaseCommand):
             )
             courses[code] = course
 
+        groups = {}
         for group_name, course_codes in GROUPS:
             group, _ = StudentGroup.objects.get_or_create(name=group_name)
             group.courses.set([courses[c] for c in course_codes])
+            groups[group_name] = group
+
+        for student_id, name, group_name in STUDENTS:
+            Student.objects.get_or_create(
+                student_id=student_id,
+                defaults={'name': name, 'group': groups[group_name]},
+            )
 
         for day in days:
             for start, end in periods:
@@ -143,6 +166,7 @@ class Command(BaseCommand):
             f'{Room.objects.count()} rooms, '
             f'{Course.objects.count()} courses, '
             f'{StudentGroup.objects.count()} groups, '
+            f'{Student.objects.count()} students, '
             f'{TimeSlot.objects.count()} time slots.'
         ))
         if tight:

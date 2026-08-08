@@ -31,4 +31,11 @@ urlpatterns = [
     path('timeslots/add/', views.timeslot_edit, name='timeslot_add'),
     path('timeslots/<int:pk>/edit/', views.timeslot_edit, name='timeslot_edit'),
     path('timeslots/<int:pk>/delete/', views.timeslot_delete, name='timeslot_delete'),
+    path('students/', views.student_list, name='students'),
+    path('students/add/', views.student_edit, name='student_add'),
+    path('students/<int:pk>/edit/', views.student_edit, name='student_edit'),
+    path('students/<int:pk>/delete/', views.student_delete, name='student_delete'),
+    path('students/<int:pk>/create-account/', views.student_create_account, name='student_create_account'),
+    path('notifications/', views.notification_list, name='notifications'),
+    path('notifications/mark-read/', views.notifications_mark_read, name='notifications_mark_read'),
 ]

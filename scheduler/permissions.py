@@ -25,9 +25,49 @@ def lecturer_for(user):
     return getattr(user, 'lecturer_profile', None)
 
 
-def admin_flag(request):
-    """Context processor so templates can hide admin-only navigation."""
+def student_for(user):
+    """The Student this account belongs to, or None."""
+    if not user.is_authenticated:
+        return None
+    return getattr(user, 'student_profile', None)
+
+
+def is_student(user):
+    return student_for(user) is not None
+
+
+def staff_only(user):
+    """Administrators and lecturers. Students are read-only on their own
+    timetable and have no business in the conflict report or the reschedule
+    workflow, neither of which is theirs to act on."""
+    return is_admin(user) or lecturer_for(user) is not None
+
+
+staff_required = user_passes_test(staff_only)
+
+
+def role_context(request):
+    """Context processor: who the signed-in account is, and their unread count."""
+    from .models import Notification  # imported here to avoid a circular import
+
+    user = request.user
+    student = student_for(user)
+    lecturer = lecturer_for(user)
+
+    unread = 0
+    if user.is_authenticated:
+        unread = Notification.objects.filter(user=user, read_at__isnull=True).count()
+
+    # A student's username is their ID, so its first character is a digit and
+    # makes a meaningless avatar. Prefer the name on their record.
+    profile = student or lecturer
+    display_name = profile.name if profile else getattr(user, 'username', '')
     return {
-        'is_admin': is_admin(request.user),
-        'lecturer_profile': lecturer_for(request.user),
+        'is_admin': is_admin(user),
+        'lecturer_profile': lecturer,
+        'student_profile': student,
+        'is_student': student is not None,
+        'unread_notifications': unread,
+        'display_name': display_name,
+        'avatar_initial': (display_name[:1] or '?').upper(),
     }

@@ -1,0 +1,95 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Dashboard - KTS{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
+
+{% if not student.group %}
+<div class="alert alert-warning mb-4">
+    <i class="bi bi-info-circle me-2"></i>
+    You are not assigned to a programme and level yet, so there is no timetable to
+    show. Ask the timetable office to assign you.
+</div>
+{% endif %}
+
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="bi bi-calendar-check"></i></div>
+            <div class="stat-number">{{ my_class_count }}</div>
+            <div class="stat-label">Classes this week</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="bi bi-book"></i></div>
+            <div class="stat-number">{{ course_count }}</div>
+            <div class="stat-label">Courses enrolled</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="bi bi-bell"></i></div>
+            <div class="stat-number">{{ unread_notifications }}</div>
+            <div class="stat-label">Unread notifications</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-list-check"></i> My Next Classes</div>
+            {% if next_classes %}
+            <table class="data-table">
+                <thead>
+                    <tr><th>Course</th><th>When</th><th>Room</th><th>Lecturer</th></tr>
+                </thead>
+                <tbody>
+                    {% for entry in next_classes %}
+                    <tr>
+                        <td class="cell-accent">{{ entry.course.code }}</td>
+                        <td>{{ entry.timeslot }}</td>
+                        <td>{{ entry.room.name }}</td>
+                        <td>{{ entry.course.lecturer.name|default:"—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <a href="{% url 'timetable' %}" class="btn btn-kts-outline mt-3">
+                View full timetable
+            </a>
+            {% else %}
+            <div class="empty-block">
+                <i class="bi bi-calendar-x"></i>
+                <p>No classes scheduled yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-bell"></i> Recent Notifications</div>
+            {% if recent_notifications %}
+                {% for note in recent_notifications %}
+                <div class="notification-item {% if note.is_unread %}unread{% endif %}">
+                    <div class="notification-message">{{ note.message }}</div>
+                    <div class="notification-time">
+                        {{ note.created_at|date:"j M Y, H:i" }}
+                        {% if note.is_unread %}<span class="status-badge pending ms-2">New</span>{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+                <a href="{% url 'notifications' %}" class="btn btn-kts-outline mt-3">
+                    All notifications
+                </a>
+            {% else %}
+            <div class="empty-block">
+                <i class="bi bi-bell-slash"></i>
+                <p>Nothing to report. You will be told here if your timetable changes.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

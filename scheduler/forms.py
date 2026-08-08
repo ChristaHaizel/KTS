@@ -1,5 +1,5 @@
 from django import forms
-from .models import Lecturer, Course, Room, StudentGroup, TimeSlot
+from .models import Lecturer, Course, Room, Student, StudentGroup, TimeSlot
 
 
 class LecturerForm(forms.ModelForm):
@@ -47,6 +47,22 @@ class StudentGroupForm(forms.ModelForm):
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. CS Level 400'}),
             'courses': forms.CheckboxSelectMultiple,
+        }
+
+
+class StudentForm(forms.ModelForm):
+    class Meta:
+        model = Student
+        fields = ['student_id', 'name', 'group']
+        widgets = {
+            'student_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 20512345'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Ama Serwaa'}),
+            'group': forms.Select(attrs={'class': 'form-select'}),
+        }
+        labels = {'group': 'Programme and level'}
+        help_texts = {
+            'student_id': 'This is what they sign in with.',
+            'group': 'Their timetable is the timetable of this group.',
         }
 
 

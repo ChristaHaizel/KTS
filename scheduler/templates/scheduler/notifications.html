@@ -1,0 +1,39 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Notifications - KTS{% endblock %}
+{% block page_title %}Notifications{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="record-count">
+        {% if unread_count %}{{ unread_count }} unread{% else %}All caught up{% endif %}
+    </div>
+    {% if unread_count %}
+    <form method="post" action="{% url 'notifications_mark_read' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-kts-outline">
+            <i class="bi bi-check2-all me-1"></i> Mark all as read
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="kts-card">
+    {% if notifications %}
+        {% for note in notifications %}
+        <div class="notification-item {% if note.is_unread %}unread{% endif %}">
+            <div class="notification-message">{{ note.message }}</div>
+            <div class="notification-time">
+                {{ note.created_at|date:"j M Y, H:i" }}
+                {% if note.is_unread %}<span class="status-badge pending ms-2">New</span>{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+        {% include 'scheduler/_pager.html' with page=notifications %}
+    {% else %}
+        <div class="empty-block">
+            <i class="bi bi-bell-slash"></i>
+            <p>No notifications yet. You will be told here if your timetable changes.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

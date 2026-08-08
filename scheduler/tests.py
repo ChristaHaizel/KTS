@@ -7,20 +7,21 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.test import TestCase
 
 from . import charts
+from .accounts import create_student_account
 from .baselines import compare, greedy_schedule, random_schedule
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
 from .forms import (
-    CourseForm, LecturerForm, RoomForm, StudentGroupForm, TimeSlotForm,
+    CourseForm, LecturerForm, RoomForm, StudentForm, StudentGroupForm, TimeSlotForm,
 )
 from .genetic_algorithm import (
     count_violations, fitness, load_problem, run_genetic_algorithm,
 )
 from .models import (
-    Course, GenerationRun, Lecturer, RescheduleRequest, Room, StudentGroup,
-    TimeSlot, TimetableEntry,
+    Course, GenerationRun, Lecturer, Notification, RescheduleRequest, Room,
+    Student, StudentGroup, TimeSlot, TimetableEntry,
 )
-from .permissions import ADMIN_GROUP, is_admin, lecturer_for
+from .permissions import ADMIN_GROUP, is_admin, lecturer_for, student_for
 
 DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
 PERIODS = [
@@ -62,7 +63,18 @@ def make_admin(username='admin1'):
 
 
 def make_lecturer_user(username='lect1'):
+    """A plain account with nothing linked to it. Not staff: an account attached
+    to no lecturer is deliberately given nothing."""
     return User.objects.create_user(username=username, password='pw-for-tests-only')
+
+
+def make_linked_lecturer(username='drlinked', lecturer=None):
+    """An account that really is a lecturer, and so counts as staff."""
+    user = make_lecturer_user(username)
+    lecturer = lecturer or Lecturer.objects.first()
+    lecturer.user = user
+    lecturer.save()
+    return user
 
 
 class GeneticAlgorithmTests(TestCase):
@@ -509,11 +521,18 @@ class AccessControlTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/timetable/', response['Location'])
 
-    def test_lecturer_can_view_timetable(self):
-        """Read-only pages stay open to any authenticated user."""
-        self.client.force_login(self.lecturer_user)
+    def test_lecturer_can_view_timetable_and_conflicts(self):
+        self.client.force_login(make_linked_lecturer('viewer'))
         self.assertEqual(self.client.get('/timetable/').status_code, 200)
         self.assertEqual(self.client.get('/conflicts/').status_code, 200)
+
+    def test_unlinked_account_is_not_staff(self):
+        """An account attached to no lecturer is not staff, so the conflict
+        report and the reschedule workflow are both closed to it."""
+        self.client.force_login(self.lecturer_user)
+        self.assertEqual(self.client.get('/timetable/').status_code, 200)
+        self.assertIn(self.client.get('/conflicts/').status_code, (302, 403))
+        self.assertIn(self.client.get('/reschedule/').status_code, (302, 403))
 
 
 class RescheduleTests(TestCase):
@@ -800,14 +819,20 @@ class LecturerOwnershipTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(RescheduleRequest.objects.count(), 0)
 
-    def test_account_with_no_lecturer_gets_nothing(self):
-        """Unlinked accounts must see no classes, not every class."""
+    def test_account_with_no_lecturer_is_refused_outright(self):
+        """An unlinked account is not staff, so it never reaches the form. Even
+        if it did, _requestable_entries would hand it an empty queryset."""
         self.client.force_login(make_lecturer_user('unlinked'))
-        response = self.client.get('/reschedule/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.context['entries']), 0)
-        self.assertEqual(self._submit(self.my_entry).status_code, 404)
+        self.assertIn(self.client.get('/reschedule/').status_code, (302, 403))
+        self.assertIn(self._submit(self.my_entry).status_code, (302, 403))
         self.assertEqual(RescheduleRequest.objects.count(), 0)
+
+    def test_unlinked_account_would_get_an_empty_queryset(self):
+        """The scoping itself fails safe, independently of the route guard."""
+        from .views import _requestable_entries
+        self.assertEqual(
+            list(_requestable_entries(make_lecturer_user('unlinked2'))), []
+        )
 
     def test_dropdown_lists_only_own_classes(self):
         self.client.force_login(self.user)
@@ -893,7 +918,9 @@ class PermissionBoundaryTests(TestCase):
         '/student-groups/', '/student-groups/add/',
         '/timeslots/', '/timeslots/add/',
     ]
-    OPEN_TO_ANY_USER = ['/', '/timetable/', '/conflicts/', '/reschedule/']
+    # Open to staff. Students get '/', '/timetable/' and '/notifications/' only,
+    # which StudentPermissionTests covers.
+    STAFF_ROUTES = ['/', '/timetable/', '/conflicts/', '/reschedule/']
 
     def setUp(self):
         build_dataset()
@@ -916,9 +943,9 @@ class PermissionBoundaryTests(TestCase):
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
-    def test_shared_routes_are_open_to_any_user(self):
-        self.client.force_login(self.lecturer_user)
-        for url in self.OPEN_TO_ANY_USER:
+    def test_staff_routes_are_open_to_a_lecturer(self):
+        self.client.force_login(make_linked_lecturer('reallecturer'))
+        for url in self.STAFF_ROUTES:
             with self.subTest(url=url):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
@@ -1301,6 +1328,338 @@ class WeightSensitivityTests(TestCase):
         )
         self.assertTrue(result['success'])
         self.assertIn('violations', result)
+
+
+def make_student(student_id='20512999', name='Test Student', group=None, with_account=True):
+    student = Student.objects.create(student_id=student_id, name=name, group=group)
+    if with_account:
+        create_student_account(student)
+    return student
+
+
+class StudentLoginTests(TestCase):
+    """Requirement 1: log in securely using assigned credentials (student ID)."""
+
+    def setUp(self):
+        build_dataset()
+        self.group = StudentGroup.objects.first()
+        self.student = Student.objects.create(
+            student_id='20512345', name='Ama Serwaa', group=self.group
+        )
+
+    def test_the_username_is_the_student_id(self):
+        user, _password = create_student_account(self.student)
+        self.assertEqual(user.username, '20512345')
+
+    def test_student_can_sign_in_with_their_id(self):
+        _user, password = create_student_account(self.student)
+        self.assertTrue(self.client.login(username='20512345', password=password))
+
+    def test_generated_account_has_no_privileges(self):
+        user, _ = create_student_account(self.student)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(is_admin(user))
+        self.assertIsNone(lecturer_for(user))
+
+    def test_account_is_linked_back_to_the_student(self):
+        user, _ = create_student_account(self.student)
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.user, user)
+        self.assertEqual(student_for(user), self.student)
+
+    def test_wrong_password_is_refused(self):
+        create_student_account(self.student)
+        self.assertFalse(self.client.login(username='20512345', password='guess'))
+
+    def test_anonymous_cannot_reach_the_timetable(self):
+        response = self.client.get('/timetable/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response['Location'])
+
+
+class StudentTimetableTests(TestCase):
+    """Requirement 2: a personalised timetable for their programme and level."""
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.my_group = StudentGroup.objects.get(name='Group A')
+        self.other_group = StudentGroup.objects.get(name='Group B')
+        self.student = make_student(group=self.my_group)
+        self.client.force_login(self.student.user)
+
+    def test_timetable_shows_only_their_group(self):
+        response = self.client.get('/timetable/')
+        self.assertEqual(response.status_code, 200)
+        shown = [e for row in response.context['grid'] for cell in row['cells'] for e in cell]
+        self.assertGreater(len(shown), 0)
+        for entry in shown:
+            self.assertEqual(entry.student_group, self.my_group)
+
+    def test_another_groups_classes_are_absent(self):
+        response = self.client.get('/timetable/')
+        shown = [e for row in response.context['grid'] for cell in row['cells'] for e in cell]
+        everything = TimetableEntry.objects.filter(is_active=True).count()
+        self.assertLess(len(shown), everything)
+        self.assertNotIn(
+            self.other_group, {e.student_group for e in shown}
+        )
+
+    def test_filter_controls_are_not_offered(self):
+        """The dropdowns would list every group and every member of staff."""
+        response = self.client.get('/timetable/')
+        self.assertEqual(len(response.context['groups']), 0)
+        self.assertEqual(len(response.context['lecturers']), 0)
+        self.assertNotContains(response, 'Filter by Lecturer')
+
+    def test_query_parameters_cannot_widen_the_view(self):
+        """A student appending ?group=<other> must not see another timetable."""
+        response = self.client.get(f'/timetable/?group={self.other_group.pk}')
+        shown = [e for row in response.context['grid'] for cell in row['cells'] for e in cell]
+        for entry in shown:
+            self.assertEqual(entry.student_group, self.my_group)
+
+    def test_unassigned_student_sees_nothing_not_everything(self):
+        loose = make_student(student_id='20512888', name='No Group', group=None)
+        self.client.force_login(loose.user)
+        response = self.client.get('/timetable/')
+        shown = [e for row in response.context['grid'] for cell in row['cells'] for e in cell]
+        self.assertEqual(shown, [])
+
+    def test_dashboard_is_the_student_one(self):
+        response = self.client.get('/')
+        self.assertTemplateUsed(response, 'scheduler/dashboard_student.html')
+        self.assertEqual(
+            response.context['my_class_count'],
+            TimetableEntry.objects.filter(
+                is_active=True, student_group=self.my_group
+            ).count(),
+        )
+
+
+class StudentNotificationTests(TestCase):
+    """Requirement 3: in-system notification when their timetable changes."""
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.my_group = StudentGroup.objects.get(name='Group A')
+        self.other_group = StudentGroup.objects.get(name='Group B')
+        self.student = make_student(group=self.my_group)
+        self.other_student = make_student(
+            student_id='20512777', name='Other', group=self.other_group
+        )
+        self.admin = make_admin('notifier')
+        self.entry = TimetableEntry.objects.filter(
+            is_active=True, student_group=self.my_group
+        ).first()
+        self.free_slot = (TimeSlot.objects
+                          .exclude(pk__in=TimetableEntry.objects.filter(is_active=True)
+                                   .values_list('timeslot_id', flat=True))
+                          .first())
+
+    def test_approving_a_move_notifies_the_affected_group(self):
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            requested_room=self.entry.room, reason='clash',
+        )
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+
+        self.assertEqual(
+            Notification.objects.filter(user=self.student.user).count(), 1
+        )
+        message = Notification.objects.get(user=self.student.user).message
+        self.assertIn(self.entry.course.code, message)
+
+    def test_a_move_does_not_notify_an_unaffected_group(self):
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            requested_room=self.entry.room, reason='clash',
+        )
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+        self.assertEqual(
+            Notification.objects.filter(user=self.other_student.user).count(), 0
+        )
+
+    def test_a_refused_move_notifies_nobody(self):
+        """Nothing changed, so there is nothing to announce."""
+        other = TimetableEntry.objects.filter(is_active=True).exclude(pk=self.entry.pk).first()
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=other.timeslot,
+            requested_room=other.room, reason='clashing',
+        )
+        self.client.force_login(self.admin)
+        self.client.post(f'/reschedule/{req.pk}/approve/')
+        req.refresh_from_db()
+        self.assertEqual(req.status, 'PENDING')
+        self.assertEqual(Notification.objects.filter(user=self.student.user).count(), 0)
+
+    def test_regenerating_notifies_every_student(self):
+        self.client.force_login(self.admin)
+        self.client.post('/generate/')
+        for student in (self.student, self.other_student):
+            with self.subTest(student=student.student_id):
+                self.assertEqual(
+                    Notification.objects.filter(user=student.user).count(), 1
+                )
+
+    def test_unread_count_appears_in_every_page(self):
+        Notification.objects.create(user=self.student.user, message='Something moved.')
+        self.client.force_login(self.student.user)
+        response = self.client.get('/')
+        self.assertEqual(response.context['unread_notifications'], 1)
+
+    def test_notifications_page_lists_them(self):
+        Notification.objects.create(user=self.student.user, message='Your class moved.')
+        self.client.force_login(self.student.user)
+        response = self.client.get('/notifications/')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Your class moved.')
+
+    def test_marking_read_clears_the_count(self):
+        Notification.objects.create(user=self.student.user, message='One')
+        Notification.objects.create(user=self.student.user, message='Two')
+        self.client.force_login(self.student.user)
+        self.client.post('/notifications/mark-read/')
+        self.assertEqual(
+            Notification.objects.filter(user=self.student.user, read_at__isnull=True).count(), 0
+        )
+
+    def test_marking_read_requires_post(self):
+        self.client.force_login(self.student.user)
+        self.assertEqual(self.client.get('/notifications/mark-read/').status_code, 405)
+
+    def test_a_student_only_sees_their_own_notifications(self):
+        Notification.objects.create(user=self.student.user, message='Mine')
+        Notification.objects.create(user=self.other_student.user, message='Theirs')
+        self.client.force_login(self.student.user)
+        response = self.client.get('/notifications/')
+        self.assertContains(response, 'Mine')
+        self.assertNotContains(response, 'Theirs')
+
+    def test_students_without_an_account_are_skipped(self):
+        """There is nowhere to deliver to, and it must not raise."""
+        make_student(student_id='20512666', name='No Login',
+                     group=self.my_group, with_account=False)
+        req = RescheduleRequest.objects.create(
+            entry=self.entry, requested_timeslot=self.free_slot,
+            requested_room=self.entry.room, reason='clash',
+        )
+        self.client.force_login(self.admin)
+        response = self.client.post(f'/reschedule/{req.pk}/approve/')
+        self.assertEqual(response.status_code, 302)
+
+
+class StudentPermissionTests(TestCase):
+    """A student is read-only on their own timetable and nothing else."""
+
+    FORBIDDEN = [
+        '/conflicts/', '/reschedule/', '/generate/', '/algorithm/',
+        '/lecturers/', '/courses/', '/rooms/', '/student-groups/',
+        '/timeslots/', '/students/', '/students/add/',
+    ]
+    ALLOWED = ['/', '/timetable/', '/notifications/']
+
+    def setUp(self):
+        build_dataset()
+        self.student = make_student(group=StudentGroup.objects.first())
+        self.client.force_login(self.student.user)
+
+    def test_student_is_refused_every_staff_route(self):
+        for url in self.FORBIDDEN:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertIn(
+                    response.status_code, (302, 403),
+                    f'{url} was reachable by a student',
+                )
+
+    def test_student_can_reach_their_own_pages(self):
+        for url in self.ALLOWED:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_student_cannot_submit_a_reschedule(self):
+        entry = TimetableEntry.objects.filter(is_active=True).first()
+        before = RescheduleRequest.objects.count()
+        self.client.post('/reschedule/', {
+            'entry': entry.pk if entry else 1, 'timeslot': 1, 'room': '', 'reason': 'x',
+        })
+        self.assertEqual(RescheduleRequest.objects.count(), before)
+
+    def test_student_cannot_create_accounts(self):
+        other = Student.objects.create(student_id='20500000', name='Target')
+        response = self.client.post(f'/students/{other.pk}/create-account/')
+        self.assertIn(response.status_code, (302, 403))
+        other.refresh_from_db()
+        self.assertIsNone(other.user)
+
+    def test_sidebar_hides_staff_navigation(self):
+        body = self.client.get('/').content.decode()
+        nav = body[body.index('class="sidebar-nav"'):body.index('</div>\n\n<div class="main-wrap"')]
+        for hidden in ['/conflicts/', '/reschedule/', '/generate/',
+                       '/algorithm/', '/students/', '/courses/']:
+            with self.subTest(link=hidden):
+                self.assertNotIn(f'href="{hidden}"', nav)
+
+    def test_sidebar_offers_their_own_pages(self):
+        body = self.client.get('/').content.decode()
+        self.assertIn('href="/timetable/"', body)
+        self.assertIn('href="/notifications/"', body)
+
+
+class StudentAdminPageTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        self.admin = make_admin('studentadmin')
+        self.client.force_login(self.admin)
+
+    def test_admin_can_add_a_student(self):
+        group = StudentGroup.objects.first()
+        response = self.client.post('/students/add/', {
+            'student_id': '20599999', 'name': 'New Person', 'group': group.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Student.objects.filter(student_id='20599999').exists())
+
+    def test_student_id_must_be_unique(self):
+        Student.objects.create(student_id='20511111', name='First')
+        form = StudentForm(data={'student_id': '20511111', 'name': 'Second', 'group': ''})
+        self.assertFalse(form.is_valid())
+        self.assertIn('student_id', form.errors)
+
+    def test_admin_can_create_a_students_account_from_the_page(self):
+        student = Student.objects.create(student_id='20522222', name='Needs Login')
+        response = self.client.post(
+            f'/students/{student.pk}/create-account/', follow=True
+        )
+        student.refresh_from_db()
+        self.assertIsNotNone(student.user)
+        self.assertEqual(student.user.username, '20522222')
+        match = re.search(r'password &quot;([^&]+)&quot;', response.content.decode())
+        self.assertIsNotNone(match, 'the generated password was not shown')
+        self.assertTrue(
+            self.client.login(username='20522222', password=match.group(1))
+        )
+
+    def test_refuses_when_the_id_is_already_a_username(self):
+        User.objects.create_user(username='20533333', password='x')
+        student = Student.objects.create(student_id='20533333', name='Clash')
+        self.client.post(f'/students/{student.pk}/create-account/')
+        student.refresh_from_db()
+        self.assertIsNone(student.user)
+
+    def test_deleting_a_student_keeps_the_timetable(self):
+        student = Student.objects.create(
+            student_id='20544444', name='Leaving', group=StudentGroup.objects.first()
+        )
+        run_genetic_algorithm()
+        before = TimetableEntry.objects.filter(is_active=True).count()
+        self.client.post(f'/students/{student.pk}/delete/')
+        self.assertEqual(TimetableEntry.objects.filter(is_active=True).count(), before)
 
 
 class SmokeTests(TestCase):

@@ -76,6 +76,64 @@ class StudentGroup(models.Model):
     def __str__(self):
         return self.name
 
+class Student(models.Model):
+    # The student ID is the credential: an account created for a student uses it
+    # as the username, so they sign in with the number they already know.
+    student_id = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=100)
+    # Programme and level together are the student group - "CS Level 400" - and
+    # that is what their timetable is built from.
+    group = models.ForeignKey(
+        StudentGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='students',
+    )
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='student_profile',
+        help_text='The login account this student signs in with, if they have one.',
+    )
+
+    class Meta:
+        ordering = ['student_id']
+
+    def __str__(self):
+        return f"{self.student_id} - {self.name}"
+
+
+class Notification(models.Model):
+    """An in-system message. No email: the requirement is in-system delivery,
+    and a free host with no outbound mail could not honour anything else."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            # The unread badge runs on every page load for every signed-in user.
+            models.Index(fields=['user', 'read_at']),
+        ]
+
+    def __str__(self):
+        state = 'read' if self.read_at else 'unread'
+        return f"{self.user} - {state} - {self.message[:40]}"
+
+    @property
+    def is_unread(self):
+        return self.read_at is None
+
+
 class TimeSlot(models.Model):
     DAYS = DAY_CHOICES
 

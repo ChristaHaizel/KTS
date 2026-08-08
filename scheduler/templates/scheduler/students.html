@@ -1,0 +1,73 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Students - KTS{% endblock %}
+{% block page_title %}Students{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="record-count">{{ total_count }} student(s) on record</div>
+    <a href="{% url 'student_add' %}" class="btn btn-kts-primary">
+        <i class="bi bi-plus-lg me-1"></i> Add Student
+    </a>
+</div>
+
+<div class="kts-card flush">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Student ID</th>
+                    <th>Name</th>
+                    <th>Programme and level</th>
+                    <th>Login account</th>
+                    <th style="width:100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student in students %}
+                <tr>
+                    <td class="cell-accent">{{ student.student_id }}</td>
+                    <td class="cell-primary">{{ student.name }}</td>
+                    <td>
+                        {% if student.group %}
+                            {{ student.group.name }}
+                        {% else %}
+                            <span class="text-faint">Unassigned</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if student.user %}
+                            <span class="day-badge">{{ student.user.username }}</span>
+                        {% else %}
+                            <form method="post" action="{% url 'student_create_account' student.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-create-account"
+                                        title="Create a login for {{ student.name }}">
+                                    <i class="bi bi-person-plus me-1"></i>Create account
+                                </button>
+                            </form>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="row-actions">
+                            <a href="{% url 'student_edit' student.pk %}" class="icon-btn icon-edit" title="Edit {{ student.name }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            <a href="{% url 'student_delete' student.pk %}" class="icon-btn icon-delete" title="Delete {{ student.name }}">
+                                <i class="bi bi-trash"></i>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="empty-state">
+                        <i class="bi bi-mortarboard"></i>
+                        No students yet. Click "Add Student" to create one.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include 'scheduler/_pager.html' with page=students %}
+</div>
+{% endblock %}

@@ -1,0 +1,41 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}{% if student %}Edit Student{% else %}Add Student{% endif %} - KTS{% endblock %}
+{% block page_title %}{% if student %}Edit Student{% else %}Add Student{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title">
+                <i class="bi bi-mortarboard"></i>
+                {% if student %}Edit {{ student.name }}{% else %}New Student{% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Student ID</label>
+                    {{ form.student_id }}
+                    <div class="form-hint small mt-1">{{ form.student_id.help_text }}</div>
+                    {% if form.student_id.errors %}<div class="text-danger small mt-1">{{ form.student_id.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Full Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Programme and level</label>
+                    {{ form.group }}
+                    <div class="form-hint small mt-1">{{ form.group.help_text }}</div>
+                    {% if form.group.errors %}<div class="text-danger small mt-1">{{ form.group.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-check-lg me-1"></i> {% if student %}Save Changes{% else %}Add Student{% endif %}
+                    </button>
+                    <a href="{% url 'students' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

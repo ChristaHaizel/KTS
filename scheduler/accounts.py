@@ -23,3 +23,23 @@ def derive_username(email, taken):
         candidate = f'{base}{suffix}'
         suffix += 1
     return candidate
+
+
+def create_student_account(student):
+    """Give a student a login. The username is their student ID.
+
+    Deliberately not derived or prefixed: the requirement is that a student
+    signs in with their assigned credentials, and the ID is the one identifier
+    they already have. Returns (user, password); the password is shown once and
+    never stored in readable form.
+    """
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    password = generate_password()
+    user = User.objects.create_user(
+        username=student.student_id, password=password
+    )
+    student.user = user
+    student.save(update_fields=['user'])
+    return user, password

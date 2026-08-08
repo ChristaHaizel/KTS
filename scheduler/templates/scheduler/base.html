@@ -571,6 +571,32 @@
             pointer-events: none;
         }
 
+        .nav-badge {
+            margin-left: auto;
+            min-width: 20px;
+            padding: 1px 7px;
+            border-radius: var(--r-pill);
+            background: var(--on-brand);
+            color: var(--kts-blue);
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        /* Notifications. Unread is marked by a rule and a badge, not colour alone. */
+        .notification-item {
+            padding: var(--sp-3) 0;
+            border-top: 1px solid #f1f5f9;
+        }
+        .notification-item:first-child { border-top: none; }
+        .notification-item.unread {
+            border-left: 3px solid var(--kts-blue);
+            padding-left: var(--sp-3);
+            background: var(--surface-sunken);
+        }
+        .notification-message { font-size: 0.875rem; color: var(--ink); }
+        .notification-time { font-size: 0.75rem; color: var(--ink-faint); margin-top: var(--sp-1); }
+
         .btn-create-account {
             border-radius: var(--r-pill);
             border: 1.5px dashed var(--line-strong);
@@ -757,7 +783,12 @@
             <i class="bi bi-grid-1x2"></i> Dashboard
         </a>
         <a href="{% url 'timetable' %}" class="nav-link {% if request.resolver_match.url_name == 'timetable' %}active{% endif %}">
-            <i class="bi bi-calendar3"></i> Timetable
+            <i class="bi bi-calendar3"></i>
+            {% if is_student %}My Timetable{% else %}Timetable{% endif %}
+        </a>
+        <a href="{% url 'notifications' %}" class="nav-link {% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">
+            <i class="bi bi-bell"></i> Notifications
+            {% if unread_notifications %}<span class="nav-badge">{{ unread_notifications }}</span>{% endif %}
         </a>
         {% if is_admin %}
         <div class="nav-section-label">Data</div>
@@ -773,10 +804,14 @@
         <a href="{% url 'studentgroups' %}" class="nav-link {% if request.resolver_match.url_name == 'studentgroups' or request.resolver_match.url_name == 'studentgroup_add' or request.resolver_match.url_name == 'studentgroup_edit' %}active{% endif %}">
             <i class="bi bi-people"></i> Student Groups
         </a>
+        <a href="{% url 'students' %}" class="nav-link {% if request.resolver_match.url_name == 'students' or request.resolver_match.url_name == 'student_add' or request.resolver_match.url_name == 'student_edit' %}active{% endif %}">
+            <i class="bi bi-mortarboard"></i> Students
+        </a>
         <a href="{% url 'timeslots' %}" class="nav-link {% if request.resolver_match.url_name == 'timeslots' or request.resolver_match.url_name == 'timeslot_add' or request.resolver_match.url_name == 'timeslot_edit' %}active{% endif %}">
             <i class="bi bi-clock"></i> Time Slots
         </a>
         {% endif %}
+        {% if not is_student %}
         <div class="nav-section-label">Tools</div>
         <a href="{% url 'conflicts' %}" class="nav-link {% if request.resolver_match.url_name == 'conflicts' %}active{% endif %}">
             <i class="bi bi-exclamation-triangle"></i> Conflicts
@@ -792,6 +827,7 @@
         <a href="{% url 'reschedule' %}" class="nav-link {% if request.resolver_match.url_name == 'reschedule' %}active{% endif %}">
             <i class="bi bi-arrow-left-right"></i> Reschedule
         </a>
+        {% endif %}
     </div>
 </div>
 
@@ -799,8 +835,11 @@
     <div class="topbar">
         <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
         <div class="topbar-user">
-            <div class="user-avatar">{{ request.user.username|first|upper }}</div>
-            <span class="topbar-username">{{ request.user.username }}</span>
+            <div class="user-avatar">{{ avatar_initial }}</div>
+            <span class="topbar-username">
+                {{ display_name }}
+                {% if student_profile %}<span class="text-faint">({{ student_profile.student_id }})</span>{% endif %}
+            </span>
             {% comment %}
             Logout must be POST - Django refuses GET - and the topbar is sticky,
             so this stays reachable however far the page or sidebar scrolls.

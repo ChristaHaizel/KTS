@@ -1,8 +1,22 @@
 {% extends 'scheduler/base.html' %}
 {% load scheduler_tags %}
 {% block title %}Timetable - KTS{% endblock %}
-{% block page_title %}Timetable View{% endblock %}
+{% block page_title %}{% if student %}My Timetable{% else %}Timetable View{% endif %}{% endblock %}
 {% block content %}
+{% if student %}
+<div class="kts-card mb-4">
+    <div class="kts-card-title"><i class="bi bi-mortarboard"></i> {{ student.name }}</div>
+    <p class="card-lede mb-0">
+        {% if student.group %}
+            Showing every session scheduled for <strong>{{ student.group.name }}</strong>
+            this semester.
+        {% else %}
+            You are not assigned to a programme and level yet, so there is nothing to
+            show. Ask the timetable office to assign you.
+        {% endif %}
+    </p>
+</div>
+{% else %}
 <div class="kts-card mb-4">
     <form method="get" class="row g-3 align-items-end">
         <div class="col-md-4">
@@ -31,6 +45,7 @@
         </div>
     </form>
 </div>
+{% endif %}
 
 <div class="kts-card flush">
     <div class="table-responsive">

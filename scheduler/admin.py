@@ -1,5 +1,28 @@
 from django.contrib import admin
-from .models import Room, Lecturer, Course, StudentGroup, TimeSlot, TimetableEntry, RescheduleRequest
+from .models import (
+    Room, Lecturer, Course, StudentGroup, TimeSlot, TimetableEntry,
+    RescheduleRequest, Student, Notification, GenerationRun,
+)
+
+
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+    list_display = ['student_id', 'name', 'group', 'user']
+    list_filter = ['group']
+    search_fields = ['student_id', 'name']
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ['user', 'message', 'created_at', 'read_at']
+    list_filter = ['read_at']
+    readonly_fields = ['created_at']
+
+
+@admin.register(GenerationRun)
+class GenerationRunAdmin(admin.ModelAdmin):
+    list_display = ['created_at', 'best_fitness', 'generations_run', 'entries_created', 'dropped']
+    readonly_fields = ['created_at']
 
 @admin.register(Room)
 class RoomAdmin(admin.ModelAdmin):

@@ -7,12 +7,14 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.utils import timezone
 from django.views.decorators.http import require_POST
-from .permissions import admin_required, is_admin, lecturer_for
+from .permissions import (
+    admin_required, is_admin, lecturer_for, staff_required, student_for,
+)
 from .models import (
     TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup,
-    TimeSlot, GenerationRun,
+    TimeSlot, GenerationRun, Student, Notification,
 )
-from .accounts import derive_username, generate_password
+from .accounts import create_student_account, derive_username, generate_password
 from .baselines import compare
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
@@ -20,7 +22,10 @@ from .genetic_algorithm import (
     run_genetic_algorithm, PENALTY_ROOM_CLASH, PENALTY_LECTURER_CLASH,
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
 )
-from .forms import LecturerForm, CourseForm, RoomForm, StudentGroupForm, TimeSlotForm
+from .forms import (
+    LecturerForm, CourseForm, RoomForm, StudentForm, StudentGroupForm, TimeSlotForm,
+)
+from .notifications import notify, notify_all_students, notify_group_of_change
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +54,21 @@ def dashboard(request):
             'conflict_count': len(detect_conflicts()),
         })
 
+    student = student_for(request.user)
+    if student is not None:
+        my_classes = TimetableEntry.objects.filter(is_active=True)
+        my_classes = (my_classes.filter(student_group=student.group)
+                      if student.group else my_classes.none())
+        return render(request, 'scheduler/dashboard_student.html', {
+            'student': student,
+            'my_class_count': my_classes.count(),
+            'course_count': student.group.courses.count() if student.group else 0,
+            'next_classes': my_classes.select_related(
+                'course', 'room', 'timeslot', 'course__lecturer'
+            ).order_by('timeslot__start_time')[:5],
+            'recent_notifications': Notification.objects.filter(user=request.user)[:5],
+        })
+
     lecturer = lecturer_for(request.user)
     my_entries = TimetableEntry.objects.filter(is_active=True)
     my_entries = my_entries.filter(course__lecturer=lecturer) if lecturer else my_entries.none()
@@ -71,12 +91,20 @@ def timetable_view(request):
     entries = TimetableEntry.objects.filter(is_active=True).select_related(
         'course', 'room', 'timeslot', 'student_group', 'course__lecturer'
     )
-    group_filter = request.GET.get('group')
-    lecturer_filter = request.GET.get('lecturer')
-    if group_filter:
-        entries = entries.filter(student_group__id=group_filter)
-    if lecturer_filter:
-        entries = entries.filter(course__lecturer__id=lecturer_filter)
+
+    # A student's timetable is their own: locked to their programme and level,
+    # with no filter controls, rather than the whole department's grid.
+    student = student_for(request.user)
+    if student is not None:
+        entries = entries.filter(student_group=student.group) if student.group else entries.none()
+        group_filter = lecturer_filter = None
+    else:
+        group_filter = request.GET.get('group')
+        lecturer_filter = request.GET.get('lecturer')
+        if group_filter:
+            entries = entries.filter(student_group__id=group_filter)
+        if lecturer_filter:
+            entries = entries.filter(course__lecturer__id=lecturer_filter)
 
     # Rows are distinct periods (start/end times); days are the columns. A TimeSlot
     # already carries its own day, so one row per TimeSlot would render a diagonal
@@ -99,17 +127,106 @@ def timetable_view(request):
             {'start': s, 'end': e, 'cells': [grid[(s, e)][d] for d in days]}
             for s, e in periods
         ],
-        'groups': StudentGroup.objects.all(),
-        'lecturers': Lecturer.objects.all(),
+        # Students get no filter controls: the grid is already theirs, and the
+        # dropdowns would list every group and every member of staff.
+        'groups': [] if student else StudentGroup.objects.all(),
+        'lecturers': [] if student else Lecturer.objects.all(),
         'selected_group': group_filter,
         'selected_lecturer': lecturer_filter,
+        'student': student,
     }
     return render(request, 'scheduler/timetable.html', context)
 
 @login_required
+@staff_required
 def conflict_view(request):
     conflicts = detect_conflicts()
     return render(request, 'scheduler/conflicts.html', {'conflicts': conflicts})
+
+@login_required
+def notification_list(request):
+    """In-system delivery: the requirement asks for notifications, and a host
+    with no outbound mail cannot honestly promise anything else."""
+    notifications = Notification.objects.filter(user=request.user)
+    return render(request, 'scheduler/notifications.html', {
+        'notifications': _paginate(request, notifications),
+        'unread_count': notifications.filter(read_at__isnull=True).count(),
+    })
+
+@login_required
+@require_POST
+def notifications_mark_read(request):
+    updated = Notification.objects.filter(
+        user=request.user, read_at__isnull=True
+    ).update(read_at=timezone.now())
+    if updated:
+        messages.success(request, f'{updated} notification(s) marked as read.')
+    return redirect('notifications')
+
+@login_required
+@admin_required
+def student_list(request):
+    students = Student.objects.select_related('group', 'user').order_by('student_id')
+    return render(request, 'scheduler/students.html', {
+        'students': _paginate(request, students),
+        'total_count': students.count(),
+    })
+
+@login_required
+@admin_required
+def student_edit(request, pk=None):
+    student = get_object_or_404(Student, pk=pk) if pk else None
+    if request.method == 'POST':
+        form = StudentForm(request.POST, instance=student)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"Student {'updated' if pk else 'added'} successfully.")
+            return redirect('students')
+    else:
+        form = StudentForm(instance=student)
+    return render(request, 'scheduler/student_form.html', {'form': form, 'student': student})
+
+@login_required
+@admin_required
+def student_delete(request, pk):
+    student = get_object_or_404(Student, pk=pk)
+    if request.method == 'POST':
+        student.delete()
+        messages.success(request, f'Student {student.student_id} deleted.')
+        return redirect('students')
+    return render(request, 'scheduler/student_confirm_delete.html', {'student': student})
+
+@login_required
+@admin_required
+@require_POST
+def student_create_account(request, pk):
+    """The student signs in with their student ID, so that is the username."""
+    student = get_object_or_404(Student, pk=pk)
+    if student.user_id:
+        messages.warning(request, f'{student.student_id} already has an account.')
+        return redirect('students')
+
+    User = get_user_model()
+    if User.objects.filter(username=student.student_id).exists():
+        messages.error(
+            request,
+            f'An account named "{student.student_id}" already exists but is not '
+            f'linked to this student. Link it in the admin panel instead.',
+        )
+        return redirect('students')
+
+    user, password = create_student_account(student)
+    logger.info(
+        'Student account %s created for %s by %s',
+        user.username, student.name, request.user.username,
+    )
+    messages.success(
+        request,
+        f'Account created for {student.name} — student ID "{student.student_id}" '
+        f'is the username, password "{password}". This password is shown once '
+        f'and cannot be recovered; pass it on securely.',
+    )
+    return redirect('students')
 
 @login_required
 @admin_required
@@ -130,6 +247,12 @@ def generate_timetable(request):
                 'Timetable generated by %s: %d entries, %d dropped, fitness %.4f in %.2fs',
                 request.user.username, result['entries_created'], result['dropped'],
                 result['fitness'], result['runtime_seconds'],
+            )
+            # Regeneration replaces every entry, so every student's timetable
+            # has potentially moved.
+            notify_all_students(
+                'The timetable has been regenerated. Your schedule may have '
+                'changed - check your timetable.'
             )
             messages.success(request, f"Timetable generated successfully! {result['entries_created']} entries created.")
             if result.get('dropped'):
@@ -186,6 +309,7 @@ def _requestable_entries(user):
 
 
 @login_required
+@staff_required
 def reschedule_request(request):
     # This queryset is the security boundary, not just the dropdown's contents:
     # the POST resolves the chosen entry against it, so a forged id 404s.
@@ -253,6 +377,19 @@ def approve_reschedule(request, pk):
             'Reschedule %s approved by %s: %s moved to %s',
             req.pk, request.user.username, req.entry.course.code, req.requested_timeslot,
         )
+        # Only the group whose class actually moved is affected.
+        notify_group_of_change(
+            req.entry.student_group,
+            f'{req.entry.course.code} ({req.entry.course.name}) has moved to '
+            f'{req.entry.timeslot} in {req.entry.room.name}.',
+        )
+        # And close the loop for whoever asked, so they are not left checking.
+        if req.requested_by and req.requested_by != request.user:
+            notify(
+                [req.requested_by],
+                f'Your reschedule request for {req.entry.course.code} was approved. '
+                f'It now runs {req.entry.timeslot} in {req.entry.room.name}.',
+            )
         messages.success(request, 'Reschedule approved and timetable updated.')
     return redirect('reschedule')
 
@@ -266,6 +403,12 @@ def reject_reschedule(request, pk):
     req.decided_at = timezone.now()
     req.save()
     logger.info('Reschedule %s rejected by %s', req.pk, request.user.username)
+    if req.requested_by and req.requested_by != request.user:
+        notify(
+            [req.requested_by],
+            f'Your reschedule request for {req.entry.course.code} was not approved. '
+            f'It still runs {req.entry.timeslot} in {req.entry.room.name}.',
+        )
     messages.success(request, 'Reschedule request rejected.')
     return redirect('reschedule')
 

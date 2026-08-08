@@ -28,6 +28,13 @@
                     <td>
                         {% if lecturer.user %}
                             <span class="day-badge">{{ lecturer.user.username }}</span>
+                            <form method="post" action="{% url 'view_as' lecturer.user.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn-view-as"
+                                        title="See the app as {{ lecturer.name }}">
+                                    <i class="bi bi-eye me-1"></i>View as
+                                </button>
+                            </form>
                         {% else %}
                             <form method="post" action="{% url 'lecturer_create_account' lecturer.pk %}" class="d-inline">
                                 {% csrf_token %}

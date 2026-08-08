@@ -1662,6 +1662,129 @@ class StudentAdminPageTests(TestCase):
         self.assertEqual(TimetableEntry.objects.filter(is_active=True).count(), before)
 
 
+class ViewAsTests(TestCase):
+    """Previewing must only ever lose privilege, never gain it."""
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+        self.admin = make_admin('previewer')
+        self.other_admin = make_admin('otherboss')
+
+        self.lecturer = Lecturer.objects.get(email='l0@example.com')
+        self.lecturer_user = make_lecturer_user('drpreview')
+        self.lecturer.user = self.lecturer_user
+        self.lecturer.save()
+
+        self.student = make_student(
+            student_id='20599001', group=StudentGroup.objects.get(name='Group A')
+        )
+
+    def test_admin_can_preview_as_a_student(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(f'/view-as/{self.student.user.pk}/', follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'scheduler/dashboard_student.html')
+        self.assertEqual(response.context['viewing_as'], self.student.name)
+
+    def test_admin_can_preview_as_a_lecturer(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(f'/view-as/{self.lecturer_user.pk}/', follow=True)
+        self.assertTemplateUsed(response, 'scheduler/dashboard_lecturer.html')
+
+    def test_preview_loses_admin_access(self):
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.student.user.pk}/')
+        for url in ['/courses/', '/generate/', '/algorithm/', '/students/']:
+            with self.subTest(url=url):
+                self.assertIn(self.client.get(url).status_code, (302, 403))
+
+    def test_the_banner_is_always_shown(self):
+        # Asserted on the banner's content, not its CSS class: the class name
+        # sits in the stylesheet on every page and would pass either way.
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.student.user.pk}/')
+        response = self.client.get('/')
+        self.assertContains(response, 'Back to my account')
+        self.assertContains(response, '/view-as/stop/')
+        self.assertContains(response, self.student.name)
+
+    def test_returning_restores_full_access(self):
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.student.user.pk}/')
+        self.assertIn(self.client.get('/courses/').status_code, (302, 403))
+
+        self.client.post('/view-as/stop/')
+        self.assertEqual(self.client.get('/courses/').status_code, 200)
+
+    def test_cannot_preview_as_another_admin(self):
+        """The whole point is that it is never an escalation."""
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.other_admin.pk}/')
+        response = self.client.get('/')
+        self.assertIsNone(response.context['impersonator'])
+
+    def test_a_lecturer_cannot_preview_as_anyone(self):
+        self.client.force_login(self.lecturer_user)
+        response = self.client.post(f'/view-as/{self.student.user.pk}/')
+        self.assertEqual(response.status_code, 404)
+        self.assertIsNone(self.client.get('/').context['impersonator'])
+
+    def test_a_student_cannot_preview_as_anyone(self):
+        self.client.force_login(self.student.user)
+        response = self.client.post(f'/view-as/{self.lecturer_user.pk}/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_preview_cannot_be_chained_into_an_escalation(self):
+        """From inside a preview, the real account still decides - and it
+        still cannot reach an administrator."""
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.student.user.pk}/')
+        self.client.post(f'/view-as/{self.other_admin.pk}/')
+        response = self.client.get('/')
+        # Still the student, never the other admin.
+        self.assertEqual(response.context['viewing_as'], self.student.name)
+
+    def test_losing_admin_rights_ends_an_open_preview(self):
+        """Re-checked every request, not just when it started."""
+        self.client.force_login(self.admin)
+        self.client.post(f'/view-as/{self.student.user.pk}/')
+        self.assertIsNotNone(self.client.get('/').context['impersonator'])
+
+        self.admin.is_superuser = False
+        self.admin.groups.clear()
+        self.admin.save()
+
+        response = self.client.get('/')
+        self.assertIsNone(response.context['impersonator'])
+
+    def test_starting_requires_post(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.get(f'/view-as/{self.student.user.pk}/').status_code, 405
+        )
+
+    def test_stopping_requires_post(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get('/view-as/stop/').status_code, 405)
+
+    def test_stopping_when_not_previewing_is_harmless(self):
+        self.client.force_login(self.admin)
+        response = self.client.post('/view-as/stop/', follow=True)
+        self.assertEqual(response.status_code, 200)
+
+    def test_no_banner_when_not_previewing(self):
+        self.client.force_login(self.admin)
+        response = self.client.get('/')
+        self.assertNotContains(response, 'Back to my account')
+        self.assertNotContains(response, '/view-as/stop/')
+
+    def test_view_as_button_appears_for_accounts_that_exist(self):
+        self.client.force_login(self.admin)
+        body = self.client.get('/students/').content.decode()
+        self.assertIn(f'/view-as/{self.student.user.pk}/', body)
+
+
 class SmokeTests(TestCase):
     """T5.2: walk every route as an admin and assert nothing 500s."""
 

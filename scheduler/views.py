@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.http import Http404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .permissions import (
@@ -18,6 +19,7 @@ from .accounts import create_student_account, derive_username, generate_password
 from .baselines import compare
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
+from .middleware import SESSION_KEY as IMPERSONATE_SESSION_KEY
 from .genetic_algorithm import (
     run_genetic_algorithm, PENALTY_ROOM_CLASH, PENALTY_LECTURER_CLASH,
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
@@ -142,6 +144,41 @@ def timetable_view(request):
 def conflict_view(request):
     conflicts = detect_conflicts()
     return render(request, 'scheduler/conflicts.html', {'conflicts': conflicts})
+
+@login_required
+@require_POST
+def view_as(request, pk):
+    """Start previewing the app as another account.
+
+    admin_required is deliberately not used: the decorator would test the
+    already-swapped user, so a preview could be chained from inside a preview.
+    The real signed-in account is what decides.
+    """
+    real_user = request.impersonator or request.user
+    if not is_admin(real_user):
+        raise Http404
+
+    target = get_object_or_404(get_user_model(), pk=pk)
+    if is_admin(target):
+        messages.error(
+            request,
+            'That account is an administrator. Previewing is only ever a step '
+            'down in access, never a step up.',
+        )
+        return redirect(request.POST.get('next') or 'dashboard')
+
+    request.session[IMPERSONATE_SESSION_KEY] = target.pk
+    logger.info('%s started previewing as %s', real_user.username, target.username)
+    return redirect('dashboard')
+
+@login_required
+@require_POST
+def stop_view_as(request):
+    real_user = request.impersonator
+    request.session.pop(IMPERSONATE_SESSION_KEY, None)
+    if real_user:
+        logger.info('%s stopped previewing', real_user.username)
+    return redirect(request.POST.get('next') or 'dashboard')
 
 @login_required
 def notification_list(request):

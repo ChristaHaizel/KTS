@@ -62,6 +62,7 @@ def role_context(request):
     # makes a meaningless avatar. Prefer the name on their record.
     profile = student or lecturer
     display_name = profile.name if profile else getattr(user, 'username', '')
+    impersonator = getattr(request, 'impersonator', None)
     return {
         'is_admin': is_admin(user),
         'lecturer_profile': lecturer,
@@ -70,4 +71,6 @@ def role_context(request):
         'unread_notifications': unread,
         'display_name': display_name,
         'avatar_initial': (display_name[:1] or '?').upper(),
+        'impersonator': impersonator,
+        'viewing_as': display_name if impersonator else None,
     }

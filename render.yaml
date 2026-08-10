@@ -8,7 +8,7 @@ services:
     # tier they run in the build step instead, which works because the build has
     # network access and the service environment variables. ensure_superuser is
     # idempotent, so repeat deploys leave the existing account alone.
-    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py ensure_superuser"
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py ensure_superuser && python manage.py bootstrap_demo"
     startCommand: "gunicorn kts.wsgi:application"
     envVars:
       - key: SECRET_KEY

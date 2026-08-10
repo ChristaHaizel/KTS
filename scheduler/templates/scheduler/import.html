@@ -1,0 +1,108 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Import Data - KTS{% endblock %}
+{% block page_title %}Import Data{% endblock %}
+{% block content %}
+
+<div class="kts-card mb-4">
+    <div class="kts-card-title"><i class="bi bi-upload"></i> What to import</div>
+    <div class="import-kinds">
+        {% for key, item in kinds.items %}
+        <a href="?kind={{ key }}" class="import-kind {% if key == kind %}selected{% endif %}">
+            {{ item.label }}
+        </a>
+        {% endfor %}
+    </div>
+    <p class="card-lede mt-3 mb-0">
+        Import in this order: <strong>Lecturers</strong>, then <strong>Courses</strong>
+        (which reference them), and <strong>Student Groups</strong> before
+        <strong>Students</strong>. Rooms can go in at any point.
+    </p>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-filetype-csv"></i> Upload {{ spec.label }}</div>
+
+            <p class="card-lede">{{ spec.note }}</p>
+
+            <div class="csv-columns mb-4">
+                <div class="csv-columns-title">Expected header row</div>
+                <code>{{ spec.columns|join:"," }}</code>
+                <div class="form-hint small mt-2">
+                    Required: {{ spec.required|join:", " }}.
+                    Column order does not matter and capitalisation is ignored.
+                </div>
+            </div>
+
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="kind" value="{{ kind }}">
+                <div class="mb-4">
+                    <label class="form-label" for="csv-file">CSV file</label>
+                    <input type="file" name="file" id="csv-file" accept=".csv,text/csv"
+                           class="form-control" required>
+                    <div class="form-hint small mt-2">
+                        Saving from Excel? Choose <strong>CSV UTF-8</strong>.
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-upload me-1"></i> Import {{ spec.label }}
+                    </button>
+                    <a href="{% url 'data_import_template' kind %}" class="btn btn-kts-outline">
+                        <i class="bi bi-download me-1"></i> Template
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        {% if result and result.errors %}
+        <div class="kts-card">
+            <div class="kts-card-title danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                {{ result.errors|length }} problem(s) - nothing was imported
+            </div>
+            <p class="card-lede">
+                The whole file was rejected, so your data is exactly as it was.
+                Fix these and upload again.
+            </p>
+            <div class="import-errors">
+                {% for error in result.errors %}
+                <div class="import-error">{{ error }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-info-circle"></i> How it works</div>
+            <ul class="import-notes">
+                <li>
+                    <strong>All or nothing.</strong> Every row is checked before anything
+                    is written. One bad row rejects the whole file, and you get every
+                    problem listed at once rather than one per attempt.
+                </li>
+                <li>
+                    <strong>Re-uploading is safe.</strong> Rows are matched on the
+                    identifier they already carry, so a corrected file updates the
+                    existing records instead of creating duplicates.
+                </li>
+                <li>
+                    <strong>References must exist.</strong> A course naming an unknown
+                    lecturer, or a student naming an unknown group, is reported as an
+                    error rather than quietly creating one - which is what stops a typo
+                    splitting a cohort in two.
+                </li>
+                <li>
+                    <strong>Logins are separate.</strong> Importing people does not create
+                    accounts. Use the Create account buttons on the Lecturers and Students
+                    pages, so passwords appear in your browser and nowhere else.
+                </li>
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

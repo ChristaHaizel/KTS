@@ -4,6 +4,7 @@ from datetime import time
 
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from . import charts
@@ -11,6 +12,9 @@ from .accounts import create_student_account
 from .baselines import compare, greedy_schedule, random_schedule
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
+from .importers import (
+    KINDS, ImportError_ as CsvImportError, run_import, template_csv,
+)
 from .forms import (
     CourseForm, LecturerForm, RoomForm, StudentForm, StudentGroupForm, TimeSlotForm,
 )
@@ -1783,6 +1787,266 @@ class ViewAsTests(TestCase):
         self.client.force_login(self.admin)
         body = self.client.get('/students/').content.decode()
         self.assertIn(f'/view-as/{self.student.user.pk}/', body)
+
+
+def csv_upload(text, name='data.csv', encoding='utf-8'):
+    return SimpleUploadedFile(name, text.encode(encoding), content_type='text/csv')
+
+
+class CsvImportTests(TestCase):
+    def setUp(self):
+        self.group = StudentGroup.objects.create(name='CS Level 100')
+
+    # --- the promise that nothing lands unless everything is valid ----------
+
+    def test_one_bad_row_rejects_the_whole_file(self):
+        upload = csv_upload(
+            'name,email\n'
+            'Good Person,good@knust.edu.gh\n'
+            'No Email,\n'
+            'Also Good,also@knust.edu.gh\n'
+        )
+        result = run_import('lecturers', upload)
+        self.assertFalse(result.ok)
+        self.assertEqual(Lecturer.objects.count(), 0,
+                         'a valid row was written despite the file being rejected')
+
+    def test_every_problem_is_reported_at_once(self):
+        upload = csv_upload(
+            'name,email\n'
+            ',missing.name@x.gh\n'
+            'No Email,\n'
+            'Bad Address,not-an-email\n'
+        )
+        result = run_import('lecturers', upload)
+        self.assertEqual(len(result.errors), 3)
+
+    def test_errors_name_the_row_number(self):
+        upload = csv_upload('name,email\nFine,fine@x.gh\nBroken,\n')
+        result = run_import('lecturers', upload)
+        self.assertIn('Row 3', result.errors[0])
+
+    # --- re-uploading updates rather than duplicating ------------------------
+
+    def test_reupload_updates_instead_of_duplicating(self):
+        run_import('lecturers', csv_upload('name,email\nOld Name,x@knust.edu.gh\n'))
+        result = run_import('lecturers', csv_upload('name,email\nNew Name,x@knust.edu.gh\n'))
+        self.assertEqual(Lecturer.objects.count(), 1)
+        self.assertEqual(Lecturer.objects.get().name, 'New Name')
+        self.assertEqual((result.created, result.updated), (0, 1))
+
+    def test_duplicate_within_one_file_is_an_error(self):
+        upload = csv_upload(
+            'name,email\nFirst,same@x.gh\nSecond,same@x.gh\n'
+        )
+        result = run_import('lecturers', upload)
+        self.assertFalse(result.ok)
+        self.assertIn('twice', result.errors[0])
+
+    # --- references must already exist ---------------------------------------
+
+    def test_course_with_unknown_lecturer_is_refused(self):
+        upload = csv_upload(
+            'code,name,expected_students,lecturer_email\n'
+            'CS 151,Intro,220,nobody@knust.edu.gh\n'
+        )
+        result = run_import('courses', upload)
+        self.assertFalse(result.ok)
+        self.assertIn('no lecturer', result.errors[0])
+        self.assertEqual(Course.objects.count(), 0)
+
+    def test_course_lecturer_may_be_blank(self):
+        upload = csv_upload(
+            'code,name,expected_students,lecturer_email\nCS 151,Intro,220,\n'
+        )
+        result = run_import('courses', upload)
+        self.assertTrue(result.ok, result.errors)
+        self.assertIsNone(Course.objects.get().lecturer)
+
+    def test_course_links_to_an_existing_lecturer(self):
+        lecturer = Lecturer.objects.create(name='Dr X', email='x@knust.edu.gh')
+        upload = csv_upload(
+            'code,name,expected_students,lecturer_email\n'
+            'CS 151,Intro,220,X@KNUST.EDU.GH\n'
+        )
+        result = run_import('courses', upload)
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(Course.objects.get().lecturer, lecturer)
+
+    def test_student_with_unknown_group_is_refused_and_told_what_exists(self):
+        upload = csv_upload('student_id,name,group\n20512001,Ama,CS Level 40\n')
+        result = run_import('students', upload)
+        self.assertFalse(result.ok)
+        self.assertIn('CS Level 100', result.errors[0],
+                      'the error should list the groups that do exist')
+        self.assertEqual(Student.objects.count(), 0)
+
+    def test_student_group_may_be_blank(self):
+        result = run_import(
+            'students', csv_upload('student_id,name,group\n20512001,Ama,\n')
+        )
+        self.assertTrue(result.ok, result.errors)
+        self.assertIsNone(Student.objects.get().group)
+
+    # --- file-level problems --------------------------------------------------
+
+    def test_missing_column_is_reported_clearly(self):
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('rooms', csv_upload('name\nPB 001\n'))
+        self.assertIn('capacity', str(ctx.exception))
+
+    def test_empty_file_is_refused(self):
+        with self.assertRaises(CsvImportError):
+            run_import('lecturers', csv_upload(''))
+
+    def test_header_only_file_is_refused(self):
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', csv_upload('name,email\n'))
+        self.assertIn('no data rows', str(ctx.exception))
+
+    def test_excel_byte_order_mark_is_handled(self):
+        """Excel's "CSV UTF-8" prepends a BOM, which would otherwise corrupt
+        the first header and fail every lookup against it."""
+        upload = csv_upload('﻿name,email\nAma,ama@knust.edu.gh\n')
+        result = run_import('lecturers', upload)
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(Lecturer.objects.get().name, 'Ama')
+
+    def test_headers_are_case_and_space_insensitive(self):
+        upload = csv_upload(' Name , EMAIL \nAma,ama@knust.edu.gh\n')
+        result = run_import('lecturers', upload)
+        self.assertTrue(result.ok, result.errors)
+
+    def test_blank_lines_are_skipped(self):
+        upload = csv_upload('name,email\nAma,ama@x.gh\n\n\nKojo,kojo@x.gh\n')
+        result = run_import('lecturers', upload)
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.created, 2)
+
+    def test_non_utf8_file_is_reported_not_crashed(self):
+        upload = SimpleUploadedFile(
+            'x.csv', 'name,email\nAmé,a@x.gh\n'.encode('utf-16'),
+            content_type='text/csv',
+        )
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', upload)
+        self.assertIn('UTF-8', str(ctx.exception))
+
+    # --- field validation -----------------------------------------------------
+
+    def test_capacity_must_be_a_number(self):
+        result = run_import('rooms', csv_upload('name,capacity\nPB 001,lots\n'))
+        self.assertFalse(result.ok)
+        self.assertIn('whole number', result.errors[0])
+
+    def test_capacity_must_be_positive(self):
+        result = run_import('rooms', csv_upload('name,capacity\nPB 001,0\n'))
+        self.assertFalse(result.ok)
+        self.assertIn('at least 1', result.errors[0])
+
+    def test_values_are_trimmed(self):
+        run_import('rooms', csv_upload('name,capacity\n  PB 001  ,  250  \n'))
+        room = Room.objects.get()
+        self.assertEqual(room.name, 'PB 001')
+        self.assertEqual(room.capacity, 250)
+
+    # --- the whole set --------------------------------------------------------
+
+    def test_a_realistic_sequence_imports(self):
+        self.assertTrue(run_import('lecturers', csv_upload(
+            'name,email\nDr A,a@knust.edu.gh\nDr B,b@knust.edu.gh\n')).ok)
+        self.assertTrue(run_import('rooms', csv_upload(
+            'name,capacity\nPB 001,250\nCS Lab 1,60\n')).ok)
+        self.assertTrue(run_import('courses', csv_upload(
+            'code,name,expected_students,lecturer_email\n'
+            'CS 151,Intro,220,a@knust.edu.gh\nCS 153,Discrete,210,b@knust.edu.gh\n')).ok)
+        self.assertTrue(run_import('students', csv_upload(
+            'student_id,name,group\n20512001,Ama,CS Level 100\n'
+            '20512002,Kojo,CS Level 100\n')).ok)
+
+        self.assertEqual(Lecturer.objects.count(), 2)
+        self.assertEqual(Room.objects.count(), 2)
+        self.assertEqual(Course.objects.count(), 2)
+        self.assertEqual(Student.objects.count(), 2)
+
+    def test_template_has_the_documented_header(self):
+        for kind, spec in KINDS.items():
+            with self.subTest(kind=kind):
+                first_line = template_csv(kind).splitlines()[0]
+                self.assertEqual(first_line.split(','), spec['columns'])
+
+    def test_every_template_re_imports_cleanly(self):
+        """The sample rows we hand out must themselves be valid."""
+        run_import('lecturers', csv_upload(template_csv('lecturers')))
+        StudentGroup.objects.get_or_create(name='CS Level 200')
+        for kind in ('rooms', 'courses', 'students'):
+            with self.subTest(kind=kind):
+                result = run_import(kind, csv_upload(template_csv(kind)))
+                self.assertTrue(result.ok, f'{kind}: {result.errors}')
+
+
+class CsvImportViewTests(TestCase):
+    def setUp(self):
+        self.admin = make_admin('importer')
+        self.client.force_login(self.admin)
+
+    def test_page_renders(self):
+        self.assertEqual(self.client.get('/import/').status_code, 200)
+
+    def test_each_kind_renders(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                self.assertEqual(
+                    self.client.get(f'/import/?kind={kind}').status_code, 200
+                )
+
+    def test_unknown_kind_404s(self):
+        self.assertEqual(self.client.get('/import/?kind=nonsense').status_code, 404)
+
+    def test_uploading_creates_records(self):
+        self.client.post('/import/', {
+            'kind': 'lecturers',
+            'file': csv_upload('name,email\nDr A,a@knust.edu.gh\n'),
+        })
+        self.assertEqual(Lecturer.objects.count(), 1)
+
+    def test_errors_are_shown_and_nothing_imported(self):
+        response = self.client.post('/import/', {
+            'kind': 'rooms',
+            'file': csv_upload('name,capacity\nPB 001,lots\n'),
+        })
+        self.assertContains(response, 'whole number')
+        self.assertEqual(Room.objects.count(), 0)
+
+    def test_missing_file_is_handled(self):
+        response = self.client.post('/import/', {'kind': 'lecturers'}, follow=True)
+        self.assertContains(response, 'Choose a CSV file')
+
+    def test_template_downloads(self):
+        response = self.client.get('/import/template/rooms/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('name,capacity', response.content.decode())
+
+    def test_import_is_admin_only(self):
+        build_dataset()
+        self.client.force_login(make_lecturer_user('notadmin'))
+        self.assertIn(self.client.get('/import/').status_code, (302, 403))
+        self.assertIn(
+            self.client.get('/import/template/rooms/').status_code, (302, 403)
+        )
+
+    def test_a_student_cannot_import(self):
+        build_dataset()
+        student = make_student(student_id='20500123')
+        self.client.force_login(student.user)
+        self.assertIn(self.client.get('/import/').status_code, (302, 403))
+        response = self.client.post('/import/', {
+            'kind': 'lecturers',
+            'file': csv_upload('name,email\nSneaky,s@x.gh\n'),
+        })
+        self.assertIn(response.status_code, (302, 403))
+        self.assertFalse(Lecturer.objects.filter(email='s@x.gh').exists())
 
 
 class SmokeTests(TestCase):

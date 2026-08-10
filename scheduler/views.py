@@ -5,7 +5,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .permissions import (
@@ -20,6 +21,7 @@ from .baselines import compare
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
 from .middleware import SESSION_KEY as IMPERSONATE_SESSION_KEY
+from .importers import KINDS, ImportError_ as CsvImportError, run_import, template_csv
 from .genetic_algorithm import (
     run_genetic_algorithm, PENALTY_ROOM_CLASH, PENALTY_LECTURER_CLASH,
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
@@ -199,6 +201,57 @@ def notifications_mark_read(request):
     if updated:
         messages.success(request, f'{updated} notification(s) marked as read.')
     return redirect('notifications')
+
+@login_required
+@admin_required
+def data_import(request):
+    kind = request.POST.get('kind') or request.GET.get('kind') or 'lecturers'
+    if kind not in KINDS:
+        raise Http404
+
+    result = None
+    if request.method == 'POST':
+        upload = request.FILES.get('file')
+        if upload is None:
+            messages.error(request, 'Choose a CSV file to upload.')
+        else:
+            try:
+                result = run_import(kind, upload)
+            except CsvImportError as exc:
+                messages.error(request, str(exc))
+            else:
+                if result.ok:
+                    logger.info(
+                        '%s imported %s: %d created, %d updated',
+                        request.user.username, kind, result.created, result.updated,
+                    )
+                    messages.success(
+                        request,
+                        f'{KINDS[kind]["label"]}: {result.created} added, '
+                        f'{result.updated} updated.',
+                    )
+                    return redirect(f'{reverse("data_import")}?kind={kind}')
+                messages.error(
+                    request,
+                    f'Nothing was imported. Fix the {len(result.errors)} problem(s) '
+                    f'below and upload again.',
+                )
+
+    return render(request, 'scheduler/import.html', {
+        'kinds': KINDS,
+        'kind': kind,
+        'spec': KINDS[kind],
+        'result': result,
+    })
+
+@login_required
+@admin_required
+def data_import_template(request, kind):
+    if kind not in KINDS:
+        raise Http404
+    response = HttpResponse(template_csv(kind), content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="kts-{kind}-template.csv"'
+    return response
 
 @login_required
 @admin_required

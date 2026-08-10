@@ -616,6 +616,55 @@
             background: var(--kts-blue-tint);
         }
 
+        /* CSV import */
+        .import-kinds { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+        .import-kind {
+            padding: 8px 18px;
+            border-radius: var(--r-pill);
+            border: 1.5px solid var(--line-strong);
+            background: var(--surface);
+            color: var(--ink-muted);
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: border-color 0.2s, color 0.2s, background-color 0.2s;
+        }
+        .import-kind:hover { border-color: var(--kts-blue); color: var(--kts-blue); }
+        .import-kind.selected {
+            background: var(--kts-blue);
+            border-color: var(--kts-blue);
+            color: var(--on-brand);
+        }
+        .csv-columns {
+            background: var(--surface-sunken);
+            border: 1px solid var(--line);
+            border-radius: var(--r-inset);
+            padding: var(--sp-3) var(--sp-4);
+        }
+        .csv-columns-title {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--ink-faint);
+            margin-bottom: 6px;
+        }
+        .csv-columns code { font-size: 0.85rem; color: var(--kts-blue); }
+        .import-errors { max-height: 340px; overflow-y: auto; }
+        .import-error {
+            font-size: 0.82rem;
+            color: var(--danger);
+            padding: 8px 0;
+            border-top: 1px solid #f1f5f9;
+        }
+        .import-error:first-child { border-top: none; }
+        .import-notes { margin: 0; padding-left: 18px; }
+        .import-notes li {
+            font-size: 0.85rem;
+            color: var(--ink-body);
+            margin-bottom: var(--sp-3);
+        }
+
         .nav-badge {
             margin-left: auto;
             min-width: 20px;
@@ -854,6 +903,9 @@
         </a>
         <a href="{% url 'timeslots' %}" class="nav-link {% if request.resolver_match.url_name == 'timeslots' or request.resolver_match.url_name == 'timeslot_add' or request.resolver_match.url_name == 'timeslot_edit' %}active{% endif %}">
             <i class="bi bi-clock"></i> Time Slots
+        </a>
+        <a href="{% url 'data_import' %}" class="nav-link {% if request.resolver_match.url_name == 'data_import' %}active{% endif %}">
+            <i class="bi bi-upload"></i> Import CSV
         </a>
         {% endif %}
         {% if not is_student %}

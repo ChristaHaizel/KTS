@@ -27,11 +27,13 @@
             <p class="card-lede">{{ spec.note }}</p>
 
             <div class="csv-columns mb-4">
-                <div class="csv-columns-title">Expected header row</div>
+                <div class="csv-columns-title">Columns it looks for</div>
                 <code>{{ spec.columns|join:"," }}</code>
                 <div class="form-hint small mt-2">
-                    Required: {{ spec.required|join:", " }}.
-                    Column order does not matter and capitalisation is ignored.
+                    Must have a column for <strong>{{ spec.identifies|join:", " }}</strong>.
+                    Order does not matter, extra columns are ignored, and common
+                    variants are recognised - "Email Address", "Index Number",
+                    "Seating Capacity" and the like all work.
                 </div>
             </div>
 

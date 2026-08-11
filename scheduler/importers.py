@@ -20,12 +20,65 @@ corrected file fixes data instead of duplicating it.
 """
 import csv
 import io
+import re
 
 from .models import Course, Lecturer, Room, Student, StudentGroup
 
 # Excel writes UTF-8 with a byte-order mark, which would otherwise turn the
 # first header into "﻿name" and fail every lookup against it.
 ENCODING = 'utf-8-sig'
+
+# Delimiters a spreadsheet might have used. Semicolon is what Excel writes in
+# locales where the comma is the decimal separator, and a file saved that way
+# arrives as a single column with the entire header inside it.
+DELIMITERS = [',', ';', '\t', '|']
+
+# Real exports do not use our column names. Headers are compared with case,
+# spaces, underscores and punctuation removed, so "Email Address", "e-mail"
+# and "EMAIL" all arrive here as "emailaddress", "email" and "email".
+ALIASES = {
+    'name': [
+        'name', 'fullname', 'lecturername', 'staffname', 'roomname', 'venue',
+        'venuename', 'coursename', 'coursetitle', 'title', 'studentname',
+        'surname', 'names',
+    ],
+    'email': [
+        'email', 'emailaddress', 'mail', 'mailaddress', 'lectureremail',
+        'staffemail', 'institutionalemail', 'schoolemail', 'contact',
+        'contactemail',
+    ],
+    'capacity': [
+        'capacity', 'seats', 'seat', 'size', 'seatingcapacity', 'roomcapacity',
+        'numberofseats', 'noofseats', 'maxcapacity', 'maximumcapacity',
+    ],
+    'code': [
+        'code', 'coursecode', 'courseid', 'subjectcode', 'modulecode',
+        'catalognumber',
+    ],
+    'expected_students': [
+        'expectedstudents', 'students', 'classsize', 'enrollment', 'enrolment',
+        'expected', 'numberofstudents', 'noofstudents', 'studentcount',
+        'expectedenrollment', 'expectedenrolment',
+    ],
+    'lecturer_email': [
+        'lectureremail', 'lecturer', 'lecturermail', 'staffemail', 'teacher',
+        'teacheremail', 'instructor', 'instructoremail', 'email',
+        'emailaddress',
+    ],
+    'student_id': [
+        'studentid', 'id', 'indexnumber', 'indexno', 'index', 'studentnumber',
+        'studentno', 'referencenumber', 'refno', 'matricnumber', 'matricno',
+    ],
+    'group': [
+        'group', 'studentgroup', 'programme', 'program', 'class', 'level',
+        'programmeandlevel', 'course', 'department', 'cohort', 'year',
+    ],
+}
+
+
+def normalise_header(header):
+    """Strip everything that varies between one spreadsheet and the next."""
+    return re.sub(r'[^a-z0-9]', '', (header or '').lower())
 
 
 class ImportError_(Exception):
@@ -226,9 +279,66 @@ def template_csv(kind):
     return buffer.getvalue()
 
 
-def _identifying_column_report(kind):
-    """Which kind of file the headers actually look like, for a better error."""
-    return {k: spec['identifies'] for k, spec in KINDS.items() if k != kind}
+def _sniff_delimiter(first_line):
+    """Whichever separator carves the header into the most columns."""
+    best, best_count = ',', 1
+    for candidate in DELIMITERS:
+        count = len(next(csv.reader([first_line], delimiter=candidate)))
+        if count > best_count:
+            best, best_count = candidate, count
+    return best
+
+
+def map_headers(fieldnames, kind):
+    """Match this file's headers to our field names.
+
+    Returns {our field: their header}. A header is claimed by at most one
+    field, and earlier fields in the spec win, so a courses file with a single
+    "email" column gives it to lecturer_email rather than leaving it unused.
+    """
+    spec = KINDS[kind]
+    available = {}
+    for header in fieldnames:
+        key = normalise_header(header)
+        if key:
+            available.setdefault(key, header)
+
+    mapping = {}
+    claimed = set()
+    for field in spec['columns']:
+        for alias in ALIASES.get(field, [field]):
+            if alias in available and available[alias] not in claimed:
+                mapping[field] = available[alias]
+                claimed.add(available[alias])
+                break
+    return mapping
+
+
+def _match_score(fieldnames, kind):
+    """How completely this file matches a kind.
+
+    Zero unless the identifying columns are all there, so a file can never be
+    claimed by a kind it could not populate. Beyond that, more matched columns
+    is a better match, and matching an identifying column counts double - a
+    course code is far stronger evidence of a courses file than a name column
+    is of anything.
+    """
+    spec = KINDS[kind]
+    mapping = map_headers(fieldnames, kind)
+    if any(c not in mapping for c in spec['identifies']):
+        return 0
+    return sum(2 if field in spec['identifies'] else 1 for field in mapping)
+
+
+def _elsewhere_hint(fieldnames, kind):
+    others = [
+        other for other in KINDS
+        if other != kind and _match_score(fieldnames, other) > 0
+    ]
+    if not others:
+        return ''
+    names = ' or '.join(KINDS[o]['label'] for o in others)
+    return f' It looks more like a {names} file - try importing it there.'
 
 
 def read_rows(upload, kind):
@@ -242,36 +352,54 @@ def read_rows(upload, kind):
             'That file is not readable as text. If it came from Excel, save it '
             'as "CSV UTF-8" and try again.'
         )
+    if not text.strip():
+        raise ImportError_('That file is empty.')
 
-    reader = csv.DictReader(io.StringIO(text))
+    delimiter = _sniff_delimiter(text.splitlines()[0])
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     if reader.fieldnames is None:
         raise ImportError_('That file is empty.')
 
-    headers = {(h or '').strip().lower() for h in reader.fieldnames}
+    mapping = map_headers(reader.fieldnames, kind)
+    found = ', '.join(f'"{h.strip()}"' for h in reader.fieldnames if (h or '').strip())
 
-    # The one real gate: does this look like the kind of file it was uploaded as?
-    missing = [c for c in spec['identifies'] if c not in headers]
+    # The one gate: does this look like the kind of file it was uploaded as?
+    missing = [c for c in spec['identifies'] if c not in mapping]
     if missing:
-        looks_like = [
-            other for other, cols in _identifying_column_report(kind).items()
-            if all(c in headers for c in cols)
-        ]
-        hint = ''
-        if looks_like:
-            names = ' or '.join(KINDS[o]['label'] for o in looks_like)
-            hint = f' It looks like a {names} file - try importing it there instead.'
+        hint = _elsewhere_hint(reader.fieldnames, kind)
         raise ImportError_(
-            f'This does not look like a {spec["label"]} file: it has no '
-            f'{", ".join(missing)} column. A {spec["label"]} file needs a header '
-            f'row containing {", ".join(spec["columns"])}.{hint}'
+            f'This does not look like a {spec["label"]} file: nothing in it looks '
+            f'like a {" or ".join(missing)} column. '
+            f'Its columns are: {found or "(none)"}. '
+            f'A {spec["label"]} file needs a column for '
+            f'{", ".join(spec["identifies"])}.{hint}'
+        )
+
+    # Identity alone is not enough. A courses file carries lecturer_email, which
+    # would pass as a Lecturers file and then import course names as people. So
+    # the file goes to whichever kind it matches most completely.
+    best, best_score = kind, _match_score(reader.fieldnames, kind)
+    for other in KINDS:
+        if other == kind:
+            continue
+        score = _match_score(reader.fieldnames, other)
+        if score > best_score:
+            best, best_score = other, score
+    if best != kind:
+        raise ImportError_(
+            f'This looks like a {KINDS[best]["label"]} file rather than a '
+            f'{spec["label"]} file - its columns are: {found}. '
+            f'Import it under {KINDS[best]["label"]} instead. If it really is '
+            f'{spec["label"].lower()}, remove the columns that belong to '
+            f'{KINDS[best]["label"].lower()} and upload it again.'
         )
 
     rows = []
     for index, row in enumerate(reader, start=2):  # row 1 is the header
-        normalised = {(k or '').strip().lower(): v for k, v in row.items()}
-        if not any(_clean(v) for v in normalised.values()):
+        if not any(_clean(v) for v in row.values()):
             continue  # a blank line, which spreadsheets leave behind
-        rows.append((index, normalised))
+        # Re-key onto our field names, so handlers never see their spelling.
+        rows.append((index, {field: row.get(header) for field, header in mapping.items()}))
 
     if not rows:
         raise ImportError_('That file has a header row but no data in it.')

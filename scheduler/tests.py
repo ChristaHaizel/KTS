@@ -1814,15 +1814,19 @@ class CsvImportTests(TestCase):
             for source in KINDS:
                 if source == target:
                     continue
-                # Courses carries name+code+expected_students+lecturer_email, a
-                # superset that legitimately satisfies some other kinds.
-                spec = KINDS[target]
-                headers = set(KINDS[source]['columns'])
-                if all(c in headers for c in spec['identifies']):
-                    continue
                 with self.subTest(uploading=source, into=target):
                     with self.assertRaises(CsvImportError):
                         run_import(target, csv_upload(template_csv(source)))
+
+    def test_a_courses_file_is_not_mistaken_for_lecturers(self):
+        """It carries lecturer_email, which alone would pass as a Lecturers
+        file and then import course names as people."""
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', csv_upload(
+                'code,name,expected_students,lecturer_email\n'
+                'CS 151,Intro,220,dr@knust.edu.gh\n'))
+        self.assertIn('Courses file', str(ctx.exception))
+        self.assertEqual(Lecturer.objects.count(), 0)
 
     def test_the_right_file_is_accepted(self):
         for kind in KINDS:
@@ -1942,6 +1946,55 @@ class CsvImportTests(TestCase):
         with self.assertRaises(CsvImportError) as ctx:
             run_import('rooms', csv_upload('name\nPB 001\n'))
         self.assertIn('capacity', str(ctx.exception))
+
+    # --- headers as real exports actually spell them --------------------------
+
+    def test_email_address_column_is_recognised(self):
+        result = run_import('lecturers', csv_upload(
+            'Full Name,Email Address\nDr Kwame,kwame@knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Lecturer.objects.get().email, 'kwame@knust.edu.gh')
+
+    def test_common_header_spellings(self):
+        cases = [
+            ('lecturers', 'Name,E-Mail\nDr A,a@x.gh\n', Lecturer),
+            ('lecturers', 'LECTURER NAME,LECTURER EMAIL\nDr B,b@x.gh\n', Lecturer),
+            ('rooms', 'Room Name,Seating Capacity\nPB 001,250\n', Room),
+            ('rooms', 'Venue,Seats\nSF 21,90\n', Room),
+            ('courses', 'Course Code,Course Title,Class Size\nCS 151,Intro,220\n', Course),
+            ('students', 'Index Number,Student Name,Programme\n20512001,Ama,CS 100\n', Student),
+            ('students', 'ID,Name,Level\n20512002,Kojo,CS 200\n', Student),
+        ]
+        for kind, text, model in cases:
+            with self.subTest(header=text.splitlines()[0]):
+                before = model.objects.count()
+                run_import(kind, csv_upload(text))
+                self.assertEqual(model.objects.count(), before + 1)
+
+    def test_semicolon_delimited_file_is_read(self):
+        """Excel writes semicolons in locales where comma is the decimal mark."""
+        result = run_import('rooms', csv_upload('name;capacity\nPB 001;250\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Room.objects.get().capacity, 250)
+
+    def test_tab_delimited_file_is_read(self):
+        result = run_import('rooms', csv_upload('name\tcapacity\nPB 001\t250\n'))
+        self.assertEqual(result.created, 1)
+
+    def test_the_refusal_lists_the_columns_it_actually_found(self):
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', csv_upload('Staff Ref,Department\n001,CS\n'))
+        message = str(ctx.exception)
+        self.assertIn('Staff Ref', message)
+        self.assertIn('Department', message)
+
+    def test_a_column_is_claimed_by_only_one_field(self):
+        """A courses file with one "email" column gives it to lecturer_email
+        rather than leaving the link unmade."""
+        result = run_import('courses', csv_upload(
+            'Course Code,Course Name,Email\nCS 151,Intro,dr@knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Course.objects.get().lecturer.email, 'dr@knust.edu.gh')
 
     def test_extra_columns_are_ignored(self):
         """A spreadsheet with more in it than we need still imports."""

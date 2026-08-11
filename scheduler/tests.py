@@ -2105,6 +2105,41 @@ class CsvImportTests(TestCase):
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
 
 
+class StudentGroupFormTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_admin('groupadmin'))
+
+    def test_select_all_appears_when_there_are_courses(self):
+        Course.objects.create(code='CS 151', name='Intro', expected_students=100)
+        body = self.client.get('/student-groups/add/').content.decode()
+        self.assertIn('id="course-toggle"', body)
+        self.assertIn('id="course-count"', body)
+
+    def test_select_all_is_absent_when_there_are_no_courses(self):
+        """A control that could only ever select nothing is worse than none."""
+        self.assertEqual(Course.objects.count(), 0)
+        body = self.client.get('/student-groups/add/').content.decode()
+        self.assertNotIn('id="course-toggle"', body)
+
+    def test_the_toggle_is_not_a_submit_button(self):
+        """type=button, or clicking it would save the half-filled form."""
+        Course.objects.create(code='CS 151', name='Intro', expected_students=100)
+        body = self.client.get('/student-groups/add/').content.decode()
+        toggle = body[body.index('id="course-toggle"') - 200:body.index('id="course-toggle"')]
+        self.assertIn('type="button"', toggle)
+
+    def test_selecting_every_course_saves_them_all(self):
+        codes = ['CS 151', 'CS 153', 'CS 155']
+        for code in codes:
+            Course.objects.create(code=code, name=code, expected_students=50)
+        self.client.post('/student-groups/add/', {
+            'name': 'CS Level 100',
+            'courses': list(Course.objects.values_list('pk', flat=True)),
+        })
+        group = StudentGroup.objects.get(name='CS Level 100')
+        self.assertEqual(group.courses.count(), len(codes))
+
+
 class CsvImportViewTests(TestCase):
     def setUp(self):
         self.admin = make_admin('importer')

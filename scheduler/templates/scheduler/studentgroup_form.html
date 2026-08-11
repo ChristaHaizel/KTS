@@ -17,8 +17,16 @@
                     {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
                 </div>
                 <div class="mb-4">
-                    <label class="form-label">Courses</label>
-                    <div class="checkbox-grid">
+                    <div class="checkbox-grid-header">
+                        <label class="form-label mb-0" for="course-count">Courses</label>
+                        {% if form.courses.field.queryset.exists %}
+                        <div class="checkbox-grid-tools">
+                            <span class="checkbox-count" id="course-count" aria-live="polite"></span>
+                            <button type="button" class="btn-select-all" id="course-toggle"></button>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="checkbox-grid" id="course-grid">
                         {% for checkbox in form.courses %}
                             <label class="checkbox-pill">
                                 {{ checkbox.tag }}
@@ -40,4 +48,43 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        var grid = document.getElementById('course-grid');
+        var toggle = document.getElementById('course-toggle');
+        var count = document.getElementById('course-count');
+        if (!grid || !toggle) { return; }
+
+        var boxes = Array.prototype.slice.call(
+            grid.querySelectorAll('input[type="checkbox"]')
+        );
+        if (!boxes.length) { return; }
+
+        function selected() {
+            return boxes.filter(function (b) { return b.checked; }).length;
+        }
+
+        function refresh() {
+            var chosen = selected();
+            var all = chosen === boxes.length;
+            count.textContent = chosen + ' of ' + boxes.length + ' selected';
+            // The label states what the button will do, not what is true now.
+            toggle.textContent = all ? 'Clear all' : 'Select all';
+            toggle.setAttribute(
+                'aria-label',
+                all ? 'Clear all courses' : 'Select all ' + boxes.length + ' courses'
+            );
+        }
+
+        toggle.addEventListener('click', function () {
+            var target = selected() !== boxes.length;
+            boxes.forEach(function (b) { b.checked = target; });
+            refresh();
+        });
+
+        grid.addEventListener('change', refresh);
+        refresh();
+    })();
+</script>
 {% endblock %}

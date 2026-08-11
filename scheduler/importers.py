@@ -65,13 +65,24 @@ ALIASES = {
         'teacheremail', 'instructor', 'instructoremail', 'email',
         'emailaddress',
     ],
+    # Index number is its own field now, so it must not be treated as another
+    # spelling of the student ID - the two numbers are different numbers.
     'student_id': [
-        'studentid', 'id', 'indexnumber', 'indexno', 'index', 'studentnumber',
-        'studentno', 'referencenumber', 'refno', 'matricnumber', 'matricno',
+        'studentid', 'id', 'studentnumber', 'studentno', 'referencenumber',
+        'refno', 'reference', 'matricnumber', 'matricno',
     ],
+    'index_number': [
+        'indexnumber', 'indexno', 'index', 'examnumber', 'examno',
+        'examinationnumber', 'examindex',
+    ],
+    'programme': [
+        'programme', 'program', 'degree', 'major', 'course', 'courseofstudy',
+        'department', 'discipline',
+    ],
+    'level': ['level', 'yearofstudy', 'stage', 'year', 'currentlevel'],
     'group': [
-        'group', 'studentgroup', 'programme', 'program', 'class', 'level',
-        'programmeandlevel', 'course', 'department', 'cohort', 'year',
+        'group', 'studentgroup', 'cohort', 'section', 'classgroup', 'class',
+        'programmeandlevel', 'teachinggroup',
     ],
 }
 
@@ -189,8 +200,26 @@ def _import_courses(rows, result):
         result.updated += not created
 
 
+def _normalise_level(value):
+    """Accept "400", "Level 400", "L400", "4" and similar."""
+    text = _clean(value)
+    if not text:
+        return ''
+    digits = re.sub(r'[^0-9]', '', text)
+    if not digits:
+        return ''
+    # A bare year - "4" - is the level in hundreds.
+    if len(digits) == 1 and digits != '0':
+        digits = f'{digits}00'
+    valid = {choice for choice, _label in Student.LEVELS}
+    return digits if digits in valid else ''
+
+
 def _import_students(rows, result):
     groups = {g.name.lower(): g for g in StudentGroup.objects.all()}
+    taken_index = {
+        s.index_number: s.pk for s in Student.objects.exclude(index_number=None)
+    }
     for line, row in rows:
         student_id = _clean(row.get('student_id'))
         if not student_id:
@@ -206,10 +235,34 @@ def _import_students(rows, result):
                 groups[group_name.lower()] = group
                 result.auto_created.append(f'student group "{group_name}"')
 
-        _, created = Student.objects.update_or_create(
-            student_id=student_id,
-            defaults={'name': _clean(row.get('name')) or student_id, 'group': group},
+        defaults = {
+            'name': _clean(row.get('name')) or student_id,
+            'group': group,
+            'programme': _clean(row.get('programme')),
+            'level': _normalise_level(row.get('level')),
+        }
+
+        # The index number is unique, so one already belonging to a different
+        # student is dropped rather than failing the row - the rest of the
+        # record is still worth having, and the clash is reported.
+        index_number = _clean(row.get('index_number'))
+        if index_number:
+            owner = taken_index.get(index_number)
+            existing = Student.objects.filter(student_id=student_id).first()
+            if owner is not None and (existing is None or owner != existing.pk):
+                result.skipped.append(
+                    f'Row {line}: index number "{index_number}" already belongs to '
+                    f'another student, so it was left off {student_id}'
+                )
+            else:
+                defaults['index_number'] = index_number
+                taken_index[index_number] = existing.pk if existing else None
+
+        student, created = Student.objects.update_or_create(
+            student_id=student_id, defaults=defaults
         )
+        if index_number and defaults.get('index_number'):
+            taken_index[index_number] = student.pk
         result.created += created
         result.updated += not created
 
@@ -255,16 +308,17 @@ KINDS = {
     },
     'students': {
         'label': 'Students',
-        'columns': ['student_id', 'name', 'group'],
+        'columns': ['student_id', 'index_number', 'name', 'programme', 'level', 'group'],
         'identifies': ['student_id'],
         'handler': _import_students,
         'sample': [
-            ['20512001', 'Ama Serwaa', 'CS Level 100'],
-            ['20412003', 'Abena Frimpong', 'CS Level 200'],
+            ['20512001', '7212001', 'Ama Serwaa', 'BSc Computer Science', '100', 'CS Level 100'],
+            ['20412003', '7212003', 'Abena Frimpong', 'BSc Computer Science', '200', 'CS Level 200'],
         ],
         'note': (
-            'Matched on student_id, which is also what they sign in with. A '
-            'group that does not exist yet is created for you.'
+            'Matched on student_id, which is also what they sign in with. Only '
+            'that column is required; a group that does not exist yet is created '
+            'for you, and level accepts "400" or "Level 400".'
         ),
     },
 }

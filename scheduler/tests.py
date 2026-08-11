@@ -1962,8 +1962,8 @@ class CsvImportTests(TestCase):
             ('rooms', 'Room Name,Seating Capacity\nPB 001,250\n', Room),
             ('rooms', 'Venue,Seats\nSF 21,90\n', Room),
             ('courses', 'Course Code,Course Title,Class Size\nCS 151,Intro,220\n', Course),
-            ('students', 'Index Number,Student Name,Programme\n20512001,Ama,CS 100\n', Student),
-            ('students', 'ID,Name,Level\n20512002,Kojo,CS 200\n', Student),
+            ('students', 'Student Number,Index Number,Student Name\n20512001,7212001,Ama\n', Student),
+            ('students', 'ID,Name,Level\n20512002,Kojo,200\n', Student),
         ]
         for kind, text, model in cases:
             with self.subTest(header=text.splitlines()[0]):
@@ -2103,6 +2103,128 @@ class CsvImportTests(TestCase):
                 result = run_import(kind, csv_upload(template_csv(kind)))
                 self.assertFalse(result.skipped, f'{kind}: {result.skipped}')
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
+
+
+class StudentFieldTests(TestCase):
+    """Student ID, index number, programme and level are four separate things."""
+
+    def setUp(self):
+        self.group = StudentGroup.objects.create(name='CS Level 400')
+        self.client.force_login(make_admin('fieldadmin'))
+
+    def test_all_four_are_stored_separately(self):
+        self.client.post('/students/add/', {
+            'student_id': '20212007',
+            'index_number': '7212007',
+            'name': 'Adjoa Mensimah',
+            'programme': 'BSc Computer Science',
+            'level': '400',
+            'group': self.group.pk,
+        })
+        student = Student.objects.get(student_id='20212007')
+        self.assertEqual(student.index_number, '7212007')
+        self.assertEqual(student.programme, 'BSc Computer Science')
+        self.assertEqual(student.level, '400')
+        self.assertEqual(student.group, self.group)
+
+    def test_only_the_student_id_is_required(self):
+        self.client.post('/students/add/', {
+            'student_id': '20212008', 'index_number': '', 'name': 'Nana Yaw',
+            'programme': '', 'level': '', 'group': '',
+        })
+        student = Student.objects.get(student_id='20212008')
+        self.assertIsNone(student.index_number)
+        self.assertEqual(student.programme, '')
+
+    def test_blank_index_numbers_do_not_collide(self):
+        """Two empty strings break a unique constraint where two NULLs do not."""
+        for sid in ('20500001', '20500002', '20500003'):
+            Student.objects.create(student_id=sid, name=sid, index_number='')
+        self.assertEqual(Student.objects.filter(index_number=None).count(), 3)
+
+    def test_a_duplicate_index_number_is_rejected(self):
+        Student.objects.create(student_id='20500001', name='First', index_number='7212001')
+        duplicate = Student(student_id='20500002', name='Second', index_number='7212001')
+        with self.assertRaises(DjangoValidationError):
+            duplicate.full_clean()
+
+    def test_students_list_shows_every_column(self):
+        Student.objects.create(
+            student_id='20212007', index_number='7212007', name='Adjoa',
+            programme='BSc Computer Science', level='400', group=self.group,
+        )
+        response = self.client.get('/students/')
+        for value in ['20212007', '7212007', 'Adjoa', 'BSc Computer Science',
+                      'Level 400', 'CS Level 400']:
+            with self.subTest(value=value):
+                self.assertContains(response, value)
+
+    def test_programme_and_level_read_together_when_wanted(self):
+        student = Student(programme='BSc Computer Science', level='400')
+        self.assertEqual(student.programme_and_level, 'BSc Computer Science Level 400')
+
+    def test_login_is_still_the_student_id_not_the_index_number(self):
+        student = Student.objects.create(
+            student_id='20212007', index_number='7212007', name='Adjoa',
+        )
+        user, password = create_student_account(student)
+        self.assertEqual(user.username, '20212007')
+        self.assertTrue(self.client.login(username='20212007', password=password))
+
+
+class StudentImportFieldTests(TestCase):
+    def test_the_new_columns_import(self):
+        result = run_import('students', csv_upload(
+            'student_id,index_number,name,programme,level,group\n'
+            '20212007,7212007,Adjoa,BSc Computer Science,400,CS Level 400\n'))
+        self.assertEqual(result.created, 1)
+        student = Student.objects.get()
+        self.assertEqual(student.index_number, '7212007')
+        self.assertEqual(student.programme, 'BSc Computer Science')
+        self.assertEqual(student.level, '400')
+        self.assertEqual(student.group.name, 'CS Level 400')
+
+    def test_index_number_is_not_mistaken_for_the_student_id(self):
+        """They are different numbers, so "Index Number" must not fill student_id."""
+        run_import('students', csv_upload(
+            'Student ID,Index Number,Name\n20212007,7212007,Adjoa\n'))
+        student = Student.objects.get()
+        self.assertEqual(student.student_id, '20212007')
+        self.assertEqual(student.index_number, '7212007')
+
+    def test_level_accepts_the_spellings_people_use(self):
+        for text, expected in [('400', '400'), ('Level 400', '400'), ('L400', '400'),
+                               ('4', '400'), ('', ''), ('nonsense', '')]:
+            with self.subTest(level=text):
+                Student.objects.all().delete()
+                run_import('students', csv_upload(
+                    f'student_id,name,level\n20500001,X,{text}\n'))
+                self.assertEqual(Student.objects.get().level, expected)
+
+    def test_a_clashing_index_number_is_dropped_not_fatal(self):
+        Student.objects.create(student_id='20500001', name='First', index_number='7212001')
+        result = run_import('students', csv_upload(
+            'student_id,index_number,name\n20500002,7212001,Second\n'))
+        self.assertEqual(result.created, 1)
+        second = Student.objects.get(student_id='20500002')
+        self.assertEqual(second.name, 'Second')
+        self.assertIsNone(second.index_number)
+        self.assertEqual(len(result.skipped), 1)
+        self.assertIn('already belongs', result.skipped[0])
+
+    def test_reimporting_keeps_a_students_own_index_number(self):
+        run_import('students', csv_upload(
+            'student_id,index_number,name\n20500001,7212001,First\n'))
+        result = run_import('students', csv_upload(
+            'student_id,index_number,name\n20500001,7212001,Corrected Name\n'))
+        student = Student.objects.get()
+        self.assertEqual(student.name, 'Corrected Name')
+        self.assertEqual(student.index_number, '7212001')
+        self.assertEqual(result.skipped, [])
+
+    def test_a_students_file_still_only_needs_the_student_id(self):
+        result = run_import('students', csv_upload('student_id\n20500001\n'))
+        self.assertEqual(result.created, 1)
 
 
 class StudentGroupFormTests(TestCase):

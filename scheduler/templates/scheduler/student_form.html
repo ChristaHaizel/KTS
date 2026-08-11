@@ -11,19 +11,39 @@
             </div>
             <form method="post">
                 {% csrf_token %}
-                <div class="mb-3">
-                    <label class="form-label">Student ID</label>
-                    {{ form.student_id }}
-                    <div class="form-hint small mt-1">{{ form.student_id.help_text }}</div>
-                    {% if form.student_id.errors %}<div class="text-danger small mt-1">{{ form.student_id.errors|join:", " }}</div>{% endif %}
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Student ID</label>
+                        {{ form.student_id }}
+                        <div class="form-hint small mt-1">{{ form.student_id.help_text }}</div>
+                        {% if form.student_id.errors %}<div class="text-danger small mt-1">{{ form.student_id.errors|join:", " }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Index number <span class="text-faint">(optional)</span></label>
+                        {{ form.index_number }}
+                        <div class="form-hint small mt-1">{{ form.index_number.help_text }}</div>
+                        {% if form.index_number.errors %}<div class="text-danger small mt-1">{{ form.index_number.errors|join:", " }}</div>{% endif %}
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Full Name</label>
                     {{ form.name }}
                     {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
                 </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Programme</label>
+                        {{ form.programme }}
+                        {% if form.programme.errors %}<div class="text-danger small mt-1">{{ form.programme.errors|join:", " }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Level</label>
+                        {{ form.level }}
+                        {% if form.level.errors %}<div class="text-danger small mt-1">{{ form.level.errors|join:", " }}</div>{% endif %}
+                    </div>
+                </div>
                 <div class="mb-4">
-                    <label class="form-label">Programme and level</label>
+                    <label class="form-label">Student group</label>
                     {{ form.group }}
                     <div class="form-hint small mt-1">{{ form.group.help_text }}</div>
                     {% if form.group.errors %}<div class="text-danger small mt-1">{{ form.group.errors|join:", " }}</div>{% endif %}

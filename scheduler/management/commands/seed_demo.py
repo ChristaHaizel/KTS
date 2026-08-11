@@ -59,16 +59,18 @@ GROUPS = [
     ('CS Level 400', ['CS 451', 'CS 453', 'CS 455', 'CS 457', 'CS 459']),
 ]
 
-# (student id, name, group name)
+PROGRAMME = 'BSc Computer Science'
+
+# (student id, index number, name, level, group name)
 STUDENTS = [
-    ('20512001', 'Ama Serwaa', 'CS Level 100'),
-    ('20512002', 'Kojo Amankwah', 'CS Level 100'),
-    ('20412003', 'Abena Frimpong', 'CS Level 200'),
-    ('20412004', 'Yaw Boadu', 'CS Level 200'),
-    ('20312005', 'Esi Quartey', 'CS Level 300'),
-    ('20312006', 'Kwesi Appiah', 'CS Level 300'),
-    ('20212007', 'Adjoa Mensimah', 'CS Level 400'),
-    ('20212008', 'Nana Yaw Osei', 'CS Level 400'),
+    ('20512001', '7212001', 'Ama Serwaa', '100', 'CS Level 100'),
+    ('20512002', '7212002', 'Kojo Amankwah', '100', 'CS Level 100'),
+    ('20412003', '7212003', 'Abena Frimpong', '200', 'CS Level 200'),
+    ('20412004', '7212004', 'Yaw Boadu', '200', 'CS Level 200'),
+    ('20312005', '7212005', 'Esi Quartey', '300', 'CS Level 300'),
+    ('20312006', '7212006', 'Kwesi Appiah', '300', 'CS Level 300'),
+    ('20212007', '7212007', 'Adjoa Mensimah', '400', 'CS Level 400'),
+    ('20212008', '7212008', 'Nana Yaw Osei', '400', 'CS Level 400'),
 ]
 
 DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
@@ -151,10 +153,16 @@ class Command(BaseCommand):
             group.courses.set([courses[c] for c in course_codes])
             groups[group_name] = group
 
-        for student_id, name, group_name in STUDENTS:
+        for student_id, index_number, name, level, group_name in STUDENTS:
             Student.objects.get_or_create(
                 student_id=student_id,
-                defaults={'name': name, 'group': groups[group_name]},
+                defaults={
+                    'index_number': index_number,
+                    'name': name,
+                    'programme': PROGRAMME,
+                    'level': level,
+                    'group': groups[group_name],
+                },
             )
 
         for day in days:

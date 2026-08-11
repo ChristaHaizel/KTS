@@ -53,16 +53,24 @@ class StudentGroupForm(forms.ModelForm):
 class StudentForm(forms.ModelForm):
     class Meta:
         model = Student
-        fields = ['student_id', 'name', 'group']
+        fields = ['student_id', 'index_number', 'name', 'programme', 'level', 'group']
         widgets = {
             'student_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 20512345'}),
+            'index_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 7212345'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Ama Serwaa'}),
+            'programme': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. BSc Computer Science'}),
+            'level': forms.Select(attrs={'class': 'form-select'}),
             'group': forms.Select(attrs={'class': 'form-select'}),
         }
-        labels = {'group': 'Programme and level'}
+        labels = {
+            'student_id': 'Student ID',
+            'index_number': 'Index number',
+            'group': 'Student group',
+        }
         help_texts = {
             'student_id': 'This is what they sign in with.',
-            'group': 'Their timetable is the timetable of this group.',
+            'index_number': 'Optional. Leave blank if they only have one number.',
+            'group': 'The teaching group whose timetable is theirs.',
         }
 
 

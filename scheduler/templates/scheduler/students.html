@@ -15,8 +15,11 @@
             <thead>
                 <tr>
                     <th>Student ID</th>
+                    <th>Index number</th>
                     <th>Name</th>
-                    <th>Programme and level</th>
+                    <th>Programme</th>
+                    <th>Level</th>
+                    <th>Student group</th>
                     <th>Login account</th>
                     <th style="width:100px;">Actions</th>
                 </tr>
@@ -25,7 +28,28 @@
                 {% for student in students %}
                 <tr>
                     <td class="cell-accent">{{ student.student_id }}</td>
+                    <td>
+                        {% if student.index_number %}
+                            {{ student.index_number }}
+                        {% else %}
+                            <span class="text-faint">&mdash;</span>
+                        {% endif %}
+                    </td>
                     <td class="cell-primary">{{ student.name }}</td>
+                    <td>
+                        {% if student.programme %}
+                            {{ student.programme }}
+                        {% else %}
+                            <span class="text-faint">&mdash;</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if student.level %}
+                            <span class="day-badge">{{ student.get_level_display }}</span>
+                        {% else %}
+                            <span class="text-faint">&mdash;</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if student.group %}
                             {{ student.group.name }}
@@ -66,7 +90,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="5" class="empty-state">
+                    <td colspan="8" class="empty-state">
                         <i class="bi bi-mortarboard"></i>
                         No students yet. Click "Add Student" to create one.
                     </td>

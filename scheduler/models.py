@@ -77,12 +77,30 @@ class StudentGroup(models.Model):
         return self.name
 
 class Student(models.Model):
+    LEVELS = [
+        ('100', 'Level 100'), ('200', 'Level 200'), ('300', 'Level 300'),
+        ('400', 'Level 400'), ('500', 'Level 500'), ('600', 'Level 600'),
+    ]
+
     # The student ID is the credential: an account created for a student uses it
     # as the username, so they sign in with the number they already know.
     student_id = models.CharField(max_length=20, unique=True)
+    # A separate identifier a student also carries, used on exam scripts. Unique
+    # where given, but nullable, because not every record will have one to hand -
+    # and several NULLs do not collide with each other.
+    index_number = models.CharField(
+        max_length=20, unique=True, null=True, blank=True,
+        help_text='Their examination index number, if different from the student ID.',
+    )
     name = models.CharField(max_length=100)
-    # Programme and level together are the student group - "CS Level 400" - and
-    # that is what their timetable is built from.
+    programme = models.CharField(
+        max_length=120, blank=True,
+        help_text='For example, BSc Computer Science.',
+    )
+    level = models.CharField(max_length=10, choices=LEVELS, blank=True)
+    # Descriptive fields above; this is the one that does work. The timetable is
+    # built per group, so two programmes can share a teaching group without
+    # either losing its own programme and level.
     group = models.ForeignKey(
         StudentGroup,
         on_delete=models.SET_NULL,
@@ -101,6 +119,18 @@ class Student(models.Model):
 
     class Meta:
         ordering = ['student_id']
+
+    def save(self, *args, **kwargs):
+        # A form posts "" for an untouched optional field, and two empty strings
+        # collide on a unique constraint where two NULLs do not. NULL is the
+        # honest representation of "no index number on file".
+        if not self.index_number:
+            self.index_number = None
+        super().save(*args, **kwargs)
+
+    @property
+    def programme_and_level(self):
+        return ' '.join(p for p in (self.programme, self.get_level_display()) if p)
 
     def __str__(self):
         return f"{self.student_id} - {self.name}"

@@ -7,9 +7,9 @@ from .models import (
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ['student_id', 'name', 'group', 'user']
-    list_filter = ['group']
-    search_fields = ['student_id', 'name']
+    list_display = ['student_id', 'index_number', 'name', 'programme', 'level', 'group', 'user']
+    list_filter = ['level', 'programme', 'group']
+    search_fields = ['student_id', 'index_number', 'name']
 
 
 @admin.register(Notification)

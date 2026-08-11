@@ -59,19 +59,20 @@
     </div>
 
     <div class="col-md-6">
-        {% if result and result.errors %}
+        {% if result and result.skipped %}
         <div class="kts-card">
-            <div class="kts-card-title danger">
-                <i class="bi bi-exclamation-triangle"></i>
-                {{ result.errors|length }} problem(s) - nothing was imported
+            <div class="kts-card-title">
+                <i class="bi bi-check-circle"></i>
+                Imported {{ result.total }}, skipped {{ result.skipped|length }}
             </div>
             <p class="card-lede">
-                The whole file was rejected, so your data is exactly as it was.
-                Fix these and upload again.
+                Everything that could be read was imported. These rows could not be,
+                because the record cannot exist without the missing piece. Add it and
+                upload the file again - re-importing updates rather than duplicates.
             </p>
             <div class="import-errors">
-                {% for error in result.errors %}
-                <div class="import-error">{{ error }}</div>
+                {% for skip in result.skipped %}
+                <div class="import-error">{{ skip }}</div>
                 {% endfor %}
             </div>
         </div>
@@ -80,20 +81,26 @@
             <div class="kts-card-title"><i class="bi bi-info-circle"></i> How it works</div>
             <ul class="import-notes">
                 <li>
-                    <strong>All or nothing.</strong> Every row is checked before anything
-                    is written. One bad row rejects the whole file, and you get every
-                    problem listed at once rather than one per attempt.
+                    <strong>The file has to be the right kind.</strong> That is decided by
+                    the header row, so a Rooms file uploaded into Lecturers is refused
+                    and tells you where it belongs. That is the only thing checked before
+                    loading.
+                </li>
+                <li>
+                    <strong>Everything loadable is loaded.</strong> A few unusable rows do
+                    not stop the rest; they are listed afterwards. A row is only skipped
+                    when the record cannot exist without what is missing - a lecturer with
+                    no email, a room with no capacity.
+                </li>
+                <li>
+                    <strong>Missing references are created.</strong> A student naming a
+                    group that does not exist yet, or a course naming a new lecturer,
+                    creates it. The count is reported so nothing appears unannounced.
                 </li>
                 <li>
                     <strong>Re-uploading is safe.</strong> Rows are matched on the
                     identifier they already carry, so a corrected file updates the
                     existing records instead of creating duplicates.
-                </li>
-                <li>
-                    <strong>References must exist.</strong> A course naming an unknown
-                    lecturer, or a student naming an unknown group, is reported as an
-                    error rather than quietly creating one - which is what stops a typo
-                    splitting a cohort in two.
                 </li>
                 <li>
                     <strong>Logins are separate.</strong> Importing people does not create

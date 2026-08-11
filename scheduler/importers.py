@@ -1,28 +1,25 @@
 """Bulk loading reference data from CSV.
 
-Three decisions shape this, and they are worth stating because each rules out
-something that looks simpler:
+One gate: the file has to be the kind of file you said it was. That is decided
+by its header row - a rooms file has name and capacity, a lecturers file has
+name and email - so uploading rooms into Lecturers is refused, which is the
+mistake worth catching.
 
-Validate everything, then commit, or commit nothing. A file that imports its
-first forty rows and then stops on a typo leaves the database in a state
-nobody asked for and the operator unable to tell what landed. Every row is
-checked first; if any row fails, the whole file is rejected and every problem
-is reported at once, so one round trip fixes all of them.
+Past that gate the importer is deliberately permissive. It loads every row it
+can and reports the ones it could not, rather than rejecting a whole file over
+a few bad lines. A row is only skipped when the record genuinely cannot exist
+without the missing piece: a lecturer needs an email, a room needs a capacity.
 
-Rows are matched on the identifier the row already carries - a lecturer's
-email, a course code, a room name, a student ID - and update the existing
-record rather than adding a second one. Re-uploading a corrected file is
-therefore safe and expected, rather than a way to double your data.
+Anything a row refers to that does not exist yet - a student's group, a
+course's lecturer - is created rather than treated as an error, and the count
+is reported so nothing appears out of nowhere unannounced.
 
-Referenced records must already exist. A course naming an unknown lecturer, or
-a student naming an unknown group, is an error rather than a prompt to invent
-one: a typo would otherwise silently create "CS Level 40" alongside "CS Level
-400" and split a cohort in two.
+Rows are matched on the identifier they already carry (email, course code,
+room name, student ID) and update the existing record, so re-uploading a
+corrected file fixes data instead of duplicating it.
 """
 import csv
 import io
-
-from django.db import transaction
 
 from .models import Course, Lecturer, Room, Student, StudentGroup
 
@@ -30,100 +27,73 @@ from .models import Course, Lecturer, Room, Student, StudentGroup
 # first header into "﻿name" and fail every lookup against it.
 ENCODING = 'utf-8-sig'
 
-MAX_ROWS = 5000
-
 
 class ImportError_(Exception):
-    """A problem with the file as a whole, rather than with a row."""
+    """A problem with the file as a whole - wrong kind, unreadable, empty."""
 
 
 class ImportResult:
     def __init__(self):
         self.created = 0
         self.updated = 0
-        self.errors = []
-
-    @property
-    def ok(self):
-        return not self.errors
+        self.auto_created = []   # things invented to satisfy a reference
+        self.skipped = []        # rows that could not become a record
 
     @property
     def total(self):
         return self.created + self.updated
+
+    @property
+    def imported_anything(self):
+        return self.total > 0
 
 
 def _clean(value):
     return (value or '').strip()
 
 
-def _positive_int(value, field):
+def _whole_number(value):
+    """The number, or None if it is not one."""
     text = _clean(value)
     if not text:
-        raise ValueError(f'{field} is required')
+        return None
     try:
-        number = int(text)
+        number = int(float(text))   # tolerate "250.0" from a spreadsheet
     except ValueError:
-        raise ValueError(f'{field} must be a whole number, got "{text}"')
-    if number < 1:
-        raise ValueError(f'{field} must be at least 1, got {number}')
-    return number
+        return None
+    return number if number > 0 else None
 
 
-# --- one spec per kind -------------------------------------------------------
+# --- one handler per kind ----------------------------------------------------
 
 def _import_lecturers(rows, result):
-    seen = set()
-    prepared = []
     for line, row in rows:
         email = _clean(row.get('email')).lower()
         name = _clean(row.get('name'))
-        if not name:
-            result.errors.append(f'Row {line}: name is required')
-            continue
         if not email:
-            result.errors.append(f'Row {line}: email is required')
+            result.skipped.append(f'Row {line}: no email, so there is nothing to identify this lecturer by')
             continue
-        if '@' not in email:
-            result.errors.append(f'Row {line}: "{email}" is not an email address')
-            continue
-        if email in seen:
-            result.errors.append(f'Row {line}: "{email}" appears twice in this file')
-            continue
-        seen.add(email)
-        prepared.append((email, name))
-
-    if not result.ok:
-        return
-    for email, name in prepared:
         _, created = Lecturer.objects.update_or_create(
-            email=email, defaults={'name': name}
+            email=email,
+            defaults={'name': name or email.split('@')[0]},
         )
         result.created += created
         result.updated += not created
 
 
 def _import_rooms(rows, result):
-    seen = set()
-    prepared = []
     for line, row in rows:
         name = _clean(row.get('name'))
         if not name:
-            result.errors.append(f'Row {line}: name is required')
+            result.skipped.append(f'Row {line}: no name, so there is nothing to identify this room by')
             continue
-        if name.lower() in seen:
-            result.errors.append(f'Row {line}: "{name}" appears twice in this file')
+        capacity = _whole_number(row.get('capacity'))
+        if capacity is None:
+            result.skipped.append(
+                f'Row {line}: "{name}" has no usable capacity '
+                f'("{_clean(row.get("capacity"))}") - a room needs a number of seats'
+            )
             continue
-        try:
-            capacity = _positive_int(row.get('capacity'), 'capacity')
-        except ValueError as exc:
-            result.errors.append(f'Row {line}: {exc}')
-            continue
-        seen.add(name.lower())
-        prepared.append((name, capacity))
-
-    if not result.ok:
-        return
-    for name, capacity in prepared:
         _, created = Room.objects.update_or_create(
             name=name, defaults={'capacity': capacity}
         )
@@ -133,24 +103,10 @@ def _import_rooms(rows, result):
 
 def _import_courses(rows, result):
     lecturers = {l.email.lower(): l for l in Lecturer.objects.all()}
-    seen = set()
-    prepared = []
     for line, row in rows:
         code = _clean(row.get('code'))
-        name = _clean(row.get('name'))
         if not code:
-            result.errors.append(f'Row {line}: code is required')
-            continue
-        if not name:
-            result.errors.append(f'Row {line}: name is required')
-            continue
-        if code.lower() in seen:
-            result.errors.append(f'Row {line}: "{code}" appears twice in this file')
-            continue
-        try:
-            expected = _positive_int(row.get('expected_students'), 'expected_students')
-        except ValueError as exc:
-            result.errors.append(f'Row {line}: {exc}')
+            result.skipped.append(f'Row {line}: no course code, so there is nothing to identify this course by')
             continue
 
         lecturer = None
@@ -158,41 +114,34 @@ def _import_courses(rows, result):
         if email:
             lecturer = lecturers.get(email)
             if lecturer is None:
-                result.errors.append(
-                    f'Row {line}: no lecturer with email "{email}". Import '
-                    f'lecturers first, or leave the column blank.'
+                # Create rather than refuse. The name is a placeholder taken
+                # from the address, and is corrected by importing the real
+                # lecturers file or editing the record.
+                lecturer = Lecturer.objects.create(
+                    email=email, name=email.split('@')[0]
                 )
-                continue
+                lecturers[email] = lecturer
+                result.auto_created.append(f'lecturer "{email}"')
 
-        seen.add(code.lower())
-        prepared.append((code, name, expected, lecturer))
+        expected = _whole_number(row.get('expected_students'))
+        defaults = {
+            'name': _clean(row.get('name')) or code,
+            'lecturer': lecturer,
+        }
+        if expected is not None:
+            defaults['expected_students'] = expected
 
-    if not result.ok:
-        return
-    for code, name, expected, lecturer in prepared:
-        _, created = Course.objects.update_or_create(
-            code=code,
-            defaults={'name': name, 'expected_students': expected, 'lecturer': lecturer},
-        )
+        _, created = Course.objects.update_or_create(code=code, defaults=defaults)
         result.created += created
         result.updated += not created
 
 
 def _import_students(rows, result):
     groups = {g.name.lower(): g for g in StudentGroup.objects.all()}
-    seen = set()
-    prepared = []
     for line, row in rows:
         student_id = _clean(row.get('student_id'))
-        name = _clean(row.get('name'))
         if not student_id:
-            result.errors.append(f'Row {line}: student_id is required')
-            continue
-        if not name:
-            result.errors.append(f'Row {line}: name is required')
-            continue
-        if student_id.lower() in seen:
-            result.errors.append(f'Row {line}: "{student_id}" appears twice in this file')
+            result.skipped.append(f'Row {line}: no student ID, which is what a student signs in with')
             continue
 
         group = None
@@ -200,21 +149,13 @@ def _import_students(rows, result):
         if group_name:
             group = groups.get(group_name.lower())
             if group is None:
-                known = ', '.join(sorted(g.name for g in groups.values())) or 'none yet'
-                result.errors.append(
-                    f'Row {line}: no student group called "{group_name}". '
-                    f'Existing groups: {known}.'
-                )
-                continue
+                group = StudentGroup.objects.create(name=group_name)
+                groups[group_name.lower()] = group
+                result.auto_created.append(f'student group "{group_name}"')
 
-        seen.add(student_id.lower())
-        prepared.append((student_id, name, group))
-
-    if not result.ok:
-        return
-    for student_id, name, group in prepared:
         _, created = Student.objects.update_or_create(
-            student_id=student_id, defaults={'name': name, 'group': group},
+            student_id=student_id,
+            defaults={'name': _clean(row.get('name')) or student_id, 'group': group},
         )
         result.created += created
         result.updated += not created
@@ -224,7 +165,9 @@ KINDS = {
     'lecturers': {
         'label': 'Lecturers',
         'columns': ['name', 'email'],
-        'required': ['name', 'email'],
+        # What makes a file this kind of file. Uploading rooms into Lecturers
+        # fails here, which is the mistake worth catching.
+        'identifies': ['email'],
         'handler': _import_lecturers,
         'sample': [
             ['Dr. Kwame Mensah', 'kmensah@knust.edu.gh'],
@@ -235,37 +178,40 @@ KINDS = {
     'rooms': {
         'label': 'Rooms',
         'columns': ['name', 'capacity'],
-        'required': ['name', 'capacity'],
+        'identifies': ['capacity'],
         'handler': _import_rooms,
         'sample': [
             ['PB 001 Lecture Hall', '250'],
             ['CS Lab 1', '60'],
         ],
-        'note': 'Matched on name. Capacity must be a whole number of seats.',
+        'note': 'Matched on name. Capacity is a number of seats.',
     },
     'courses': {
         'label': 'Courses',
         'columns': ['code', 'name', 'expected_students', 'lecturer_email'],
-        'required': ['code', 'name', 'expected_students'],
+        'identifies': ['code'],
         'handler': _import_courses,
         'sample': [
             ['CS 151', 'Introduction to Programming', '220', 'kmensah@knust.edu.gh'],
             ['CS 153', 'Discrete Mathematics', '210', ''],
         ],
-        'note': 'Matched on code. Import lecturers first; lecturer_email may be blank.',
+        'note': (
+            'Matched on code. A lecturer_email that is not on file yet is '
+            'created for you.'
+        ),
     },
     'students': {
         'label': 'Students',
         'columns': ['student_id', 'name', 'group'],
-        'required': ['student_id', 'name'],
+        'identifies': ['student_id'],
         'handler': _import_students,
         'sample': [
             ['20512001', 'Ama Serwaa', 'CS Level 100'],
             ['20412003', 'Abena Frimpong', 'CS Level 200'],
         ],
         'note': (
-            'Matched on student_id, which is also what they sign in with. The '
-            'group must already exist; leave it blank to assign later.'
+            'Matched on student_id, which is also what they sign in with. A '
+            'group that does not exist yet is created for you.'
         ),
     },
 }
@@ -280,29 +226,44 @@ def template_csv(kind):
     return buffer.getvalue()
 
 
-def read_rows(upload, spec):
-    """Decode and parse, raising ImportError_ for anything file-wide."""
+def _identifying_column_report(kind):
+    """Which kind of file the headers actually look like, for a better error."""
+    return {k: spec['identifies'] for k, spec in KINDS.items() if k != kind}
+
+
+def read_rows(upload, kind):
+    """Decode, check the file is the kind claimed, and return its rows."""
+    spec = KINDS[kind]
     raw = upload.read()
     try:
         text = raw.decode(ENCODING)
     except UnicodeDecodeError:
         raise ImportError_(
-            'That file is not valid UTF-8 text. If it came from Excel, use '
-            '"CSV UTF-8" when saving.'
+            'That file is not readable as text. If it came from Excel, save it '
+            'as "CSV UTF-8" and try again.'
         )
 
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None:
-        raise ImportError_('The file is empty.')
+        raise ImportError_('That file is empty.')
 
-    # Header comparison is case- and space-insensitive, because a spreadsheet
-    # round trip is entitled to capitalise things.
     headers = {(h or '').strip().lower() for h in reader.fieldnames}
-    missing = [c for c in spec['required'] if c not in headers]
+
+    # The one real gate: does this look like the kind of file it was uploaded as?
+    missing = [c for c in spec['identifies'] if c not in headers]
     if missing:
+        looks_like = [
+            other for other, cols in _identifying_column_report(kind).items()
+            if all(c in headers for c in cols)
+        ]
+        hint = ''
+        if looks_like:
+            names = ' or '.join(KINDS[o]['label'] for o in looks_like)
+            hint = f' It looks like a {names} file - try importing it there instead.'
         raise ImportError_(
-            f'Missing column(s): {", ".join(missing)}. Expected a header row of: '
-            f'{", ".join(spec["columns"])}.'
+            f'This does not look like a {spec["label"]} file: it has no '
+            f'{", ".join(missing)} column. A {spec["label"]} file needs a header '
+            f'row containing {", ".join(spec["columns"])}.{hint}'
         )
 
     rows = []
@@ -311,35 +272,25 @@ def read_rows(upload, spec):
         if not any(_clean(v) for v in normalised.values()):
             continue  # a blank line, which spreadsheets leave behind
         rows.append((index, normalised))
-        if len(rows) > MAX_ROWS:
-            raise ImportError_(
-                f'That file has more than {MAX_ROWS} rows. Split it and import '
-                f'in batches.'
-            )
 
     if not rows:
-        raise ImportError_('The file has a header but no data rows.')
+        raise ImportError_('That file has a header row but no data in it.')
     return rows
 
 
 def run_import(kind, upload):
-    """Validate every row, then commit them all or none of them."""
+    """Load everything loadable, and report whatever could not be."""
     spec = KINDS[kind]
     result = ImportResult()
-    rows = read_rows(upload, spec)
+    rows = read_rows(upload, kind)
+    spec['handler'](rows, result)
 
-    try:
-        with transaction.atomic():
-            spec['handler'](rows, result)
-            if not result.ok:
-                # Nothing was written yet - the handler returns before writing
-                # when it found problems - but roll back regardless so a future
-                # handler cannot quietly break the all-or-nothing promise.
-                raise _Abort()
-    except _Abort:
-        pass
+    # Every row unusable, despite the headers being right, means the columns
+    # are named correctly but hold something else entirely.
+    if not result.imported_anything and result.skipped:
+        raise ImportError_(
+            f'None of the {len(rows)} rows could be read as {spec["label"].lower()}. '
+            f'The columns are named correctly but do not contain '
+            f'{spec["label"].lower()} data. First problem: {result.skipped[0]}'
+        )
     return result
-
-
-class _Abort(Exception):
-    pass

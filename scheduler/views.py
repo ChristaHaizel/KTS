@@ -220,22 +220,26 @@ def data_import(request):
             except CsvImportError as exc:
                 messages.error(request, str(exc))
             else:
-                if result.ok:
-                    logger.info(
-                        '%s imported %s: %d created, %d updated',
-                        request.user.username, kind, result.created, result.updated,
-                    )
-                    messages.success(
-                        request,
-                        f'{KINDS[kind]["label"]}: {result.created} added, '
-                        f'{result.updated} updated.',
-                    )
-                    return redirect(f'{reverse("data_import")}?kind={kind}')
-                messages.error(
-                    request,
-                    f'Nothing was imported. Fix the {len(result.errors)} problem(s) '
-                    f'below and upload again.',
+                logger.info(
+                    '%s imported %s: %d created, %d updated, %d skipped',
+                    request.user.username, kind,
+                    result.created, result.updated, len(result.skipped),
                 )
+                summary = (
+                    f'{KINDS[kind]["label"]}: {result.created} added, '
+                    f'{result.updated} updated.'
+                )
+                if result.auto_created:
+                    summary += f' {len(result.auto_created)} referenced record(s) created.'
+                messages.success(request, summary)
+                if result.skipped:
+                    messages.warning(
+                        request,
+                        f'{len(result.skipped)} row(s) were skipped - listed below. '
+                        f'Everything else was imported.',
+                    )
+                else:
+                    return redirect(f'{reverse("data_import")}?kind={kind}')
 
     return render(request, 'scheduler/import.html', {
         'kinds': KINDS,

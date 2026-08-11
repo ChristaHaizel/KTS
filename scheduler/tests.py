@@ -1797,9 +1797,42 @@ class CsvImportTests(TestCase):
     def setUp(self):
         self.group = StudentGroup.objects.create(name='CS Level 100')
 
-    # --- the promise that nothing lands unless everything is valid ----------
+    # --- the one gate: is this the kind of file it says it is? ---------------
 
-    def test_one_bad_row_rejects_the_whole_file(self):
+    def test_rooms_file_is_refused_by_the_lecturers_importer(self):
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', csv_upload('name,capacity\nPB 001,250\n'))
+        self.assertIn('does not look like a Lecturers file', str(ctx.exception))
+
+    def test_the_refusal_says_where_the_file_does_belong(self):
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('lecturers', csv_upload('name,capacity\nPB 001,250\n'))
+        self.assertIn('Rooms', str(ctx.exception))
+
+    def test_every_kind_refuses_every_other_kinds_file(self):
+        for target in KINDS:
+            for source in KINDS:
+                if source == target:
+                    continue
+                # Courses carries name+code+expected_students+lecturer_email, a
+                # superset that legitimately satisfies some other kinds.
+                spec = KINDS[target]
+                headers = set(KINDS[source]['columns'])
+                if all(c in headers for c in spec['identifies']):
+                    continue
+                with self.subTest(uploading=source, into=target):
+                    with self.assertRaises(CsvImportError):
+                        run_import(target, csv_upload(template_csv(source)))
+
+    def test_the_right_file_is_accepted(self):
+        for kind in KINDS:
+            with self.subTest(kind=kind):
+                result = run_import(kind, csv_upload(template_csv(kind)))
+                self.assertGreater(result.total, 0)
+
+    # --- past the gate, load what you can ------------------------------------
+
+    def test_a_bad_row_does_not_stop_the_good_ones(self):
         upload = csv_upload(
             'name,email\n'
             'Good Person,good@knust.edu.gh\n'
@@ -1807,24 +1840,34 @@ class CsvImportTests(TestCase):
             'Also Good,also@knust.edu.gh\n'
         )
         result = run_import('lecturers', upload)
-        self.assertFalse(result.ok)
-        self.assertEqual(Lecturer.objects.count(), 0,
-                         'a valid row was written despite the file being rejected')
+        self.assertEqual(Lecturer.objects.count(), 2)
+        self.assertEqual(result.created, 2)
+        self.assertEqual(len(result.skipped), 1)
 
-    def test_every_problem_is_reported_at_once(self):
-        upload = csv_upload(
-            'name,email\n'
-            ',missing.name@x.gh\n'
-            'No Email,\n'
-            'Bad Address,not-an-email\n'
+    def test_skipped_rows_name_the_row_number(self):
+        result = run_import(
+            'lecturers', csv_upload('name,email\nFine,fine@x.gh\nBroken,\n')
         )
-        result = run_import('lecturers', upload)
-        self.assertEqual(len(result.errors), 3)
+        self.assertIn('Row 3', result.skipped[0])
 
-    def test_errors_name_the_row_number(self):
-        upload = csv_upload('name,email\nFine,fine@x.gh\nBroken,\n')
-        result = run_import('lecturers', upload)
-        self.assertIn('Row 3', result.errors[0])
+    def test_a_missing_name_is_filled_in_rather_than_skipped(self):
+        """Only the identifier is indispensable."""
+        result = run_import('lecturers', csv_upload('name,email\n,ama@knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Lecturer.objects.get().name, 'ama')
+
+    def test_course_without_expected_students_takes_the_default(self):
+        result = run_import('courses', csv_upload(
+            'code,name,expected_students,lecturer_email\nCS 151,Intro,,\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Course.objects.get().expected_students, 30)
+
+    def test_a_file_of_entirely_unusable_rows_is_reported_as_such(self):
+        """Right headers, wrong contents - better than 500 identical errors."""
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('rooms', csv_upload(
+                'name,capacity\nPB 001,none\nCS Lab,none\n'))
+        self.assertIn('None of the 2 rows', str(ctx.exception))
 
     # --- re-uploading updates rather than duplicating ------------------------
 
@@ -1835,65 +1878,82 @@ class CsvImportTests(TestCase):
         self.assertEqual(Lecturer.objects.get().name, 'New Name')
         self.assertEqual((result.created, result.updated), (0, 1))
 
-    def test_duplicate_within_one_file_is_an_error(self):
-        upload = csv_upload(
-            'name,email\nFirst,same@x.gh\nSecond,same@x.gh\n'
+    def test_duplicate_within_one_file_keeps_the_last(self):
+        result = run_import(
+            'lecturers', csv_upload('name,email\nFirst,same@x.gh\nSecond,same@x.gh\n')
         )
-        result = run_import('lecturers', upload)
-        self.assertFalse(result.ok)
-        self.assertIn('twice', result.errors[0])
+        self.assertEqual(Lecturer.objects.count(), 1)
+        self.assertEqual(Lecturer.objects.get().name, 'Second')
+        self.assertEqual(result.total, 2)
 
-    # --- references must already exist ---------------------------------------
+    # --- references are created rather than refused --------------------------
 
-    def test_course_with_unknown_lecturer_is_refused(self):
+    def test_course_with_unknown_lecturer_creates_them(self):
         upload = csv_upload(
             'code,name,expected_students,lecturer_email\n'
             'CS 151,Intro,220,nobody@knust.edu.gh\n'
         )
         result = run_import('courses', upload)
-        self.assertFalse(result.ok)
-        self.assertIn('no lecturer', result.errors[0])
-        self.assertEqual(Course.objects.count(), 0)
+        self.assertEqual(Course.objects.count(), 1)
+        lecturer = Course.objects.get().lecturer
+        self.assertIsNotNone(lecturer)
+        self.assertEqual(lecturer.email, 'nobody@knust.edu.gh')
+        self.assertEqual(len(result.auto_created), 1)
 
     def test_course_lecturer_may_be_blank(self):
-        upload = csv_upload(
-            'code,name,expected_students,lecturer_email\nCS 151,Intro,220,\n'
-        )
-        result = run_import('courses', upload)
-        self.assertTrue(result.ok, result.errors)
+        result = run_import('courses', csv_upload(
+            'code,name,expected_students,lecturer_email\nCS 151,Intro,220,\n'))
+        self.assertEqual(result.total, 1)
         self.assertIsNone(Course.objects.get().lecturer)
+        self.assertEqual(result.auto_created, [])
 
     def test_course_links_to_an_existing_lecturer(self):
         lecturer = Lecturer.objects.create(name='Dr X', email='x@knust.edu.gh')
-        upload = csv_upload(
+        run_import('courses', csv_upload(
             'code,name,expected_students,lecturer_email\n'
-            'CS 151,Intro,220,X@KNUST.EDU.GH\n'
-        )
-        result = run_import('courses', upload)
-        self.assertTrue(result.ok, result.errors)
+            'CS 151,Intro,220,X@KNUST.EDU.GH\n'))
         self.assertEqual(Course.objects.get().lecturer, lecturer)
+        self.assertEqual(Lecturer.objects.count(), 1, 'a duplicate lecturer was created')
 
-    def test_student_with_unknown_group_is_refused_and_told_what_exists(self):
-        upload = csv_upload('student_id,name,group\n20512001,Ama,CS Level 40\n')
-        result = run_import('students', upload)
-        self.assertFalse(result.ok)
-        self.assertIn('CS Level 100', result.errors[0],
-                      'the error should list the groups that do exist')
-        self.assertEqual(Student.objects.count(), 0)
+    def test_student_with_unknown_group_creates_it(self):
+        result = run_import(
+            'students', csv_upload('student_id,name,group\n20512001,Ama,CS Level 400\n')
+        )
+        self.assertEqual(Student.objects.get().group.name, 'CS Level 400')
+        self.assertEqual(len(result.auto_created), 1)
+
+    def test_students_sharing_a_new_group_create_it_once(self):
+        run_import('students', csv_upload(
+            'student_id,name,group\n'
+            '20512001,Ama,CS Level 400\n'
+            '20512002,Kojo,CS Level 400\n'))
+        self.assertEqual(StudentGroup.objects.filter(name='CS Level 400').count(), 1)
 
     def test_student_group_may_be_blank(self):
         result = run_import(
             'students', csv_upload('student_id,name,group\n20512001,Ama,\n')
         )
-        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.total, 1)
         self.assertIsNone(Student.objects.get().group)
 
     # --- file-level problems --------------------------------------------------
 
-    def test_missing_column_is_reported_clearly(self):
+    def test_missing_identifying_column_is_reported_clearly(self):
         with self.assertRaises(CsvImportError) as ctx:
             run_import('rooms', csv_upload('name\nPB 001\n'))
         self.assertIn('capacity', str(ctx.exception))
+
+    def test_extra_columns_are_ignored(self):
+        """A spreadsheet with more in it than we need still imports."""
+        result = run_import('rooms', csv_upload(
+            'name,capacity,building,notes\nPB 001,250,Petroleum,refurbished\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Room.objects.get().capacity, 250)
+
+    def test_column_order_does_not_matter(self):
+        result = run_import('rooms', csv_upload('capacity,name\n250,PB 001\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Room.objects.get().name, 'PB 001')
 
     def test_empty_file_is_refused(self):
         with self.assertRaises(CsvImportError):
@@ -1902,25 +1962,23 @@ class CsvImportTests(TestCase):
     def test_header_only_file_is_refused(self):
         with self.assertRaises(CsvImportError) as ctx:
             run_import('lecturers', csv_upload('name,email\n'))
-        self.assertIn('no data rows', str(ctx.exception))
+        self.assertIn('no data', str(ctx.exception))
 
     def test_excel_byte_order_mark_is_handled(self):
         """Excel's "CSV UTF-8" prepends a BOM, which would otherwise corrupt
         the first header and fail every lookup against it."""
-        upload = csv_upload('﻿name,email\nAma,ama@knust.edu.gh\n')
-        result = run_import('lecturers', upload)
-        self.assertTrue(result.ok, result.errors)
+        result = run_import('lecturers', csv_upload('﻿name,email\nAma,ama@knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
         self.assertEqual(Lecturer.objects.get().name, 'Ama')
 
     def test_headers_are_case_and_space_insensitive(self):
-        upload = csv_upload(' Name , EMAIL \nAma,ama@knust.edu.gh\n')
-        result = run_import('lecturers', upload)
-        self.assertTrue(result.ok, result.errors)
+        result = run_import('lecturers', csv_upload(' Name , EMAIL \nAma,ama@knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
 
     def test_blank_lines_are_skipped(self):
-        upload = csv_upload('name,email\nAma,ama@x.gh\n\n\nKojo,kojo@x.gh\n')
-        result = run_import('lecturers', upload)
-        self.assertTrue(result.ok, result.errors)
+        result = run_import(
+            'lecturers', csv_upload('name,email\nAma,ama@x.gh\n\n\nKojo,kojo@x.gh\n')
+        )
         self.assertEqual(result.created, 2)
 
     def test_non_utf8_file_is_reported_not_crashed(self):
@@ -1934,15 +1992,17 @@ class CsvImportTests(TestCase):
 
     # --- field validation -----------------------------------------------------
 
-    def test_capacity_must_be_a_number(self):
-        result = run_import('rooms', csv_upload('name,capacity\nPB 001,lots\n'))
-        self.assertFalse(result.ok)
-        self.assertIn('whole number', result.errors[0])
+    def test_a_room_without_a_usable_capacity_is_skipped_not_fatal(self):
+        result = run_import('rooms', csv_upload(
+            'name,capacity\nPB 001,250\nCS Lab,lots\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(len(result.skipped), 1)
+        self.assertIn('CS Lab', result.skipped[0])
 
-    def test_capacity_must_be_positive(self):
-        result = run_import('rooms', csv_upload('name,capacity\nPB 001,0\n'))
-        self.assertFalse(result.ok)
-        self.assertIn('at least 1', result.errors[0])
+    def test_a_decimal_capacity_from_a_spreadsheet_is_accepted(self):
+        result = run_import('rooms', csv_upload('name,capacity\nPB 001,250.0\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Room.objects.get().capacity, 250)
 
     def test_values_are_trimmed(self):
         run_import('rooms', csv_upload('name,capacity\n  PB 001  ,  250  \n'))
@@ -1953,21 +2013,29 @@ class CsvImportTests(TestCase):
     # --- the whole set --------------------------------------------------------
 
     def test_a_realistic_sequence_imports(self):
-        self.assertTrue(run_import('lecturers', csv_upload(
-            'name,email\nDr A,a@knust.edu.gh\nDr B,b@knust.edu.gh\n')).ok)
-        self.assertTrue(run_import('rooms', csv_upload(
-            'name,capacity\nPB 001,250\nCS Lab 1,60\n')).ok)
-        self.assertTrue(run_import('courses', csv_upload(
+        run_import('lecturers', csv_upload(
+            'name,email\nDr A,a@knust.edu.gh\nDr B,b@knust.edu.gh\n'))
+        run_import('rooms', csv_upload(
+            'name,capacity\nPB 001,250\nCS Lab 1,60\n'))
+        run_import('courses', csv_upload(
             'code,name,expected_students,lecturer_email\n'
-            'CS 151,Intro,220,a@knust.edu.gh\nCS 153,Discrete,210,b@knust.edu.gh\n')).ok)
-        self.assertTrue(run_import('students', csv_upload(
+            'CS 151,Intro,220,a@knust.edu.gh\nCS 153,Discrete,210,b@knust.edu.gh\n'))
+        run_import('students', csv_upload(
             'student_id,name,group\n20512001,Ama,CS Level 100\n'
-            '20512002,Kojo,CS Level 100\n')).ok)
+            '20512002,Kojo,CS Level 100\n'))
 
         self.assertEqual(Lecturer.objects.count(), 2)
         self.assertEqual(Room.objects.count(), 2)
         self.assertEqual(Course.objects.count(), 2)
         self.assertEqual(Student.objects.count(), 2)
+
+    def test_students_can_be_imported_before_any_group_exists(self):
+        """The order that used to be mandatory is now merely tidy."""
+        StudentGroup.objects.all().delete()
+        result = run_import('students', csv_upload(
+            'student_id,name,group\n20512001,Ama,CS Level 100\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(StudentGroup.objects.count(), 1)
 
     def test_template_has_the_documented_header(self):
         for kind, spec in KINDS.items():
@@ -1977,12 +2045,11 @@ class CsvImportTests(TestCase):
 
     def test_every_template_re_imports_cleanly(self):
         """The sample rows we hand out must themselves be valid."""
-        run_import('lecturers', csv_upload(template_csv('lecturers')))
-        StudentGroup.objects.get_or_create(name='CS Level 200')
-        for kind in ('rooms', 'courses', 'students'):
+        for kind in KINDS:
             with self.subTest(kind=kind):
                 result = run_import(kind, csv_upload(template_csv(kind)))
-                self.assertTrue(result.ok, f'{kind}: {result.errors}')
+                self.assertFalse(result.skipped, f'{kind}: {result.skipped}')
+                self.assertEqual(result.total, len(KINDS[kind]['sample']))
 
 
 class CsvImportViewTests(TestCase):
@@ -2010,13 +2077,21 @@ class CsvImportViewTests(TestCase):
         })
         self.assertEqual(Lecturer.objects.count(), 1)
 
-    def test_errors_are_shown_and_nothing_imported(self):
+    def test_wrong_kind_of_file_is_refused_with_a_pointer(self):
+        response = self.client.post('/import/', {
+            'kind': 'lecturers',
+            'file': csv_upload('name,capacity\nPB 001,250\n'),
+        }, follow=True)
+        self.assertContains(response, 'does not look like a Lecturers file')
+        self.assertEqual(Lecturer.objects.count(), 0)
+
+    def test_skipped_rows_are_listed_and_the_rest_imported(self):
         response = self.client.post('/import/', {
             'kind': 'rooms',
-            'file': csv_upload('name,capacity\nPB 001,lots\n'),
+            'file': csv_upload('name,capacity\nPB 001,250\nCS Lab,lots\n'),
         })
-        self.assertContains(response, 'whole number')
-        self.assertEqual(Room.objects.count(), 0)
+        self.assertContains(response, 'CS Lab')
+        self.assertEqual(Room.objects.count(), 1)
 
     def test_missing_file_is_handled(self):
         response = self.client.post('/import/', {'kind': 'lecturers'}, follow=True)

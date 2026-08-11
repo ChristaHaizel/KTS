@@ -36,6 +36,21 @@
         }
 
         * { font-family: 'Inter', sans-serif; }
+
+        /* Match the rest of the app rather than the operating system. */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--line-strong) transparent;
+        }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb {
+            background: var(--line-strong);
+            border-radius: var(--r-pill);
+            border: 3px solid transparent;
+            background-clip: padding-box;
+        }
+
         body {
             background: var(--kts-blue);
             min-height: 100vh;

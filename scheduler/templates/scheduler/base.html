@@ -65,6 +65,41 @@
         * { font-family: 'Inter', sans-serif; }
         body { background: var(--canvas); min-height: 100vh; }
 
+        /* Scrollbars. The platform default is a grey slab that belongs to the
+           OS rather than the page; these are hairline, track-less, and take
+           their colour from the surface they sit on. Firefox gets the standard
+           two properties, WebKit and Blink the pseudo-elements. */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--line-strong) transparent;
+        }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb {
+            background: var(--line-strong);
+            border-radius: var(--r-pill);
+            /* A transparent border clipped to the padding box leaves the thumb
+               looking slim without making the hit area hard to catch. */
+            border: 3px solid transparent;
+            background-clip: padding-box;
+        }
+        *::-webkit-scrollbar-thumb:hover {
+            background: #cbd5e1;
+            background-clip: padding-box;
+        }
+        *::-webkit-scrollbar-corner { background: transparent; }
+
+        /* On the blue sidebar the light-surface thumb would disappear. */
+        .sidebar-nav { scrollbar-color: rgba(255,255,255,0.28) transparent; }
+        .sidebar-nav::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.28);
+            background-clip: padding-box;
+        }
+        .sidebar-nav::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.45);
+            background-clip: padding-box;
+        }
+
         /* Focus - outline, not shadow, so removing shadows costs no accessibility */
         .form-control:focus,
         .form-select:focus,
@@ -395,6 +430,49 @@
             padding: 9px 14px;
             transition: border-color 0.2s;
         }
+
+        /* Dropdowns. appearance:none removes the platform control entirely,
+           including Bootstrap's own grey caret, and the chevron below replaces
+           it in the brand hue. The colour is baked into the data URI because a
+           CSS variable cannot reach inside one. */
+        .form-select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            padding-right: 42px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2305409E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            background-size: 13px;
+            cursor: pointer;
+        }
+        .form-select:hover { border-color: var(--kts-blue); }
+        /* The open list is drawn by the operating system and cannot be styled
+           beyond this; browsers honour these two to varying degrees. */
+        .form-select option { color: var(--ink); background: var(--surface); }
+
+        /* File inputs. The platform button is a grey slab with the wrong shape;
+           this makes it a pill in the brand tint. */
+        .form-control[type="file"] { padding: 5px 5px 5px 6px; cursor: pointer; }
+        .form-control[type="file"]::file-selector-button {
+            border: none;
+            border-radius: var(--r-pill);
+            background: var(--kts-blue-tint);
+            color: var(--kts-blue);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 8px 18px;
+            margin-right: var(--sp-3);
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .form-control[type="file"]::file-selector-button:hover {
+            background: var(--kts-blue);
+            color: var(--on-brand);
+        }
+
+        /* Textareas keep a corner grip, so the pill shape would clip it. */
+        textarea.form-control { border-radius: var(--r-inset); resize: vertical; }
         .form-label { font-weight: 500; font-size: 0.85rem; color: var(--ink-label); margin-bottom: 6px; }
         .form-hint { color: var(--ink-faint); font-weight: 400; }
 

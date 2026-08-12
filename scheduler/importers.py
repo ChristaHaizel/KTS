@@ -110,18 +110,17 @@ class ImportResult:
 
     @property
     def total(self):
-        """Successful upserts, which is one per row that was not skipped."""
+        """Distinct records created or updated.
+
+        Rows sharing an identifier are collapsed before anything is written -
+        the last one wins - so this counts records, not rows. It is the number
+        that ends up on the list page, and `repeated` explains any gap between
+        it and `rows_read`.
+        """
         return self.created + self.updated
 
-    @property
-    def records(self):
-        """Distinct records touched.
-
-        Not the same as total: a row repeating an earlier row's identifier
-        overwrites it, so it counts as an operation but not as a record. This
-        is the number that ends up on the list page.
-        """
-        return self.total - self.repeated
+    # Kept as a name that says what it means at the call site.
+    records = total
 
     @property
     def imported_anything(self):
@@ -151,22 +150,51 @@ def _whole_number(value):
 
 # --- one handler per kind ----------------------------------------------------
 
+BATCH = 500
+
+
+def _apply(model, to_create, to_update, fields, result):
+    """Write a whole import in a handful of statements.
+
+    One round trip per batch rather than one per row. Against a database on the
+    far side of a network that is the difference between a few seconds and a
+    request the gateway gives up on.
+    """
+    if to_create:
+        model.objects.bulk_create(to_create, batch_size=BATCH)
+    if to_update:
+        model.objects.bulk_update(to_update, fields, batch_size=BATCH)
+    result.created += len(to_create)
+    result.updated += len(to_update)
+
+
 def _import_lecturers(rows, result):
+    wanted = {}   # lowered email -> (email, name); a later row replaces an earlier
     for line, row in rows:
         email = _clean(row.get('email')).lower()
-        name = _clean(row.get('name'))
         if not email:
             result.skipped.append(f'Row {line}: no email, so there is nothing to identify this lecturer by')
             continue
-        _, created = Lecturer.objects.update_or_create(
-            email=email,
-            defaults={'name': name or email.split('@')[0]},
-        )
-        result.created += created
-        result.updated += not created
+        wanted[email] = (email, _clean(row.get('name')) or email.split('@')[0])
+
+    existing = {
+        l.email.lower(): l
+        for l in Lecturer.objects.filter(email__in=[e for e, _ in wanted.values()])
+    }
+
+    to_create, to_update = [], []
+    for key, (email, name) in wanted.items():
+        found = existing.get(key)
+        if found is None:
+            to_create.append(Lecturer(email=email, name=name))
+        else:
+            found.name = name
+            to_update.append(found)
+    _apply(Lecturer, to_create, to_update, ['name'], result)
 
 
 def _import_rooms(rows, result):
+    wanted = {}
     for line, row in rows:
         name = _clean(row.get('name'))
         if not name:
@@ -179,46 +207,78 @@ def _import_rooms(rows, result):
                 f'("{_clean(row.get("capacity"))}") - a room needs a number of seats'
             )
             continue
-        _, created = Room.objects.update_or_create(
-            name=name, defaults={'capacity': capacity}
-        )
-        result.created += created
-        result.updated += not created
+        wanted[name.lower()] = (name, capacity)
+
+    existing = {
+        r.name.lower(): r
+        for r in Room.objects.filter(name__in=[n for n, _ in wanted.values()])
+    }
+
+    to_create, to_update = [], []
+    for key, (name, capacity) in wanted.items():
+        found = existing.get(key)
+        if found is None:
+            to_create.append(Room(name=name, capacity=capacity))
+        else:
+            found.capacity = capacity
+            to_update.append(found)
+    _apply(Room, to_create, to_update, ['capacity'], result)
 
 
 def _import_courses(rows, result):
-    lecturers = {l.email.lower(): l for l in Lecturer.objects.all()}
+    wanted = {}
     for line, row in rows:
         code = _clean(row.get('code'))
         if not code:
             result.skipped.append(f'Row {line}: no course code, so there is nothing to identify this course by')
             continue
+        wanted[code.lower()] = (
+            code,
+            _clean(row.get('name')) or code,
+            _whole_number(row.get('expected_students')),
+            _clean(row.get('lecturer_email')).lower(),
+        )
 
-        lecturer = None
-        email = _clean(row.get('lecturer_email')).lower()
-        if email:
-            lecturer = lecturers.get(email)
-            if lecturer is None:
-                # Create rather than refuse. The name is a placeholder taken
-                # from the address, and is corrected by importing the real
-                # lecturers file or editing the record.
-                lecturer = Lecturer.objects.create(
-                    email=email, name=email.split('@')[0]
-                )
-                lecturers[email] = lecturer
-                result.auto_created.append(f'lecturer "{email}"')
+    # Resolve every lecturer at once, creating the unknown ones in one go
+    # rather than refusing the row.
+    emails = {email for *_rest, email in wanted.values() if email}
+    lecturers = {
+        l.email.lower(): l for l in Lecturer.objects.filter(email__in=emails)
+    }
+    missing = [e for e in emails if e not in lecturers]
+    if missing:
+        # The name is a placeholder from the address, corrected by importing
+        # the real lecturers file or editing the record.
+        Lecturer.objects.bulk_create(
+            [Lecturer(email=e, name=e.split('@')[0]) for e in missing],
+            batch_size=BATCH,
+        )
+        for l in Lecturer.objects.filter(email__in=missing):
+            lecturers[l.email.lower()] = l
+        result.auto_created.extend(f'lecturer "{e}"' for e in missing)
 
-        expected = _whole_number(row.get('expected_students'))
-        defaults = {
-            'name': _clean(row.get('name')) or code,
-            'lecturer': lecturer,
-        }
-        if expected is not None:
-            defaults['expected_students'] = expected
+    existing = {
+        c.code.lower(): c
+        for c in Course.objects.filter(code__in=[c for c, *_ in wanted.values()])
+    }
 
-        _, created = Course.objects.update_or_create(code=code, defaults=defaults)
-        result.created += created
-        result.updated += not created
+    to_create, to_update = [], []
+    for key, (code, name, expected, email) in wanted.items():
+        lecturer = lecturers.get(email) if email else None
+        found = existing.get(key)
+        if found is None:
+            course = Course(code=code, name=name, lecturer=lecturer)
+            if expected is not None:
+                course.expected_students = expected
+            to_create.append(course)
+        else:
+            found.name = name
+            found.lecturer = lecturer
+            if expected is not None:
+                found.expected_students = expected
+            to_update.append(found)
+    _apply(Course, to_create, to_update,
+           ['name', 'lecturer', 'expected_students'], result)
 
 
 def _normalise_level(value):
@@ -237,55 +297,94 @@ def _normalise_level(value):
 
 
 def _import_students(rows, result):
-    groups = {g.name.lower(): g for g in StudentGroup.objects.all()}
-    taken_index = {
-        s.index_number: s.pk for s in Student.objects.exclude(index_number=None)
-    }
+    wanted = {}
     for line, row in rows:
         student_id = _clean(row.get('student_id'))
         if not student_id:
             result.skipped.append(f'Row {line}: no student ID, which is what a student signs in with')
             continue
-
-        group = None
-        group_name = _clean(row.get('group'))
-        if group_name:
-            group = groups.get(group_name.lower())
-            if group is None:
-                group = StudentGroup.objects.create(name=group_name)
-                groups[group_name.lower()] = group
-                result.auto_created.append(f'student group "{group_name}"')
-
-        defaults = {
+        wanted[student_id.lower()] = {
+            'line': line,
+            'student_id': student_id,
             'name': _clean(row.get('name')) or student_id,
-            'group': group,
             'programme': _clean(row.get('programme')),
             'level': _normalise_level(row.get('level')),
+            'group_name': _clean(row.get('group')),
+            'index_number': _clean(row.get('index_number')),
         }
 
-        # The index number is unique, so one already belonging to a different
-        # student is dropped rather than failing the row - the rest of the
-        # record is still worth having, and the clash is reported.
-        index_number = _clean(row.get('index_number'))
-        if index_number:
-            owner = taken_index.get(index_number)
-            existing = Student.objects.filter(student_id=student_id).first()
-            if owner is not None and (existing is None or owner != existing.pk):
-                result.skipped.append(
-                    f'Row {line}: index number "{index_number}" already belongs to '
-                    f'another student, so it was left off {student_id}'
-                )
-            else:
-                defaults['index_number'] = index_number
-                taken_index[index_number] = existing.pk if existing else None
-
-        student, created = Student.objects.update_or_create(
-            student_id=student_id, defaults=defaults
+    # Every group in one pass, creating the unknown ones together.
+    names = {r['group_name'] for r in wanted.values() if r['group_name']}
+    groups = {
+        g.name.lower(): g for g in StudentGroup.objects.filter(name__in=names)
+    }
+    missing = [n for n in names if n.lower() not in groups]
+    if missing:
+        StudentGroup.objects.bulk_create(
+            [StudentGroup(name=n) for n in missing], batch_size=BATCH
         )
-        if index_number and defaults.get('index_number'):
-            taken_index[index_number] = student.pk
-        result.created += created
-        result.updated += not created
+        for g in StudentGroup.objects.filter(name__in=missing):
+            groups[g.name.lower()] = g
+        result.auto_created.extend(f'student group "{n}"' for n in missing)
+
+    existing = {
+        s.student_id.lower(): s
+        for s in Student.objects.filter(
+            student_id__in=[r['student_id'] for r in wanted.values()]
+        )
+    }
+
+    # An index number is unique, so one already held by a student outside this
+    # import is dropped from the row rather than failing it - the rest of the
+    # record is still worth having, and the clash is reported.
+    indexes = {r['index_number'] for r in wanted.values() if r['index_number']}
+    owned_elsewhere = set(
+        Student.objects
+        .filter(index_number__in=indexes)
+        .exclude(student_id__in=[r['student_id'] for r in wanted.values()])
+        .values_list('index_number', flat=True)
+    )
+
+    to_create, to_update = [], []
+    claimed = set()
+    for key, r in wanted.items():
+        index_number = r['index_number']
+        if index_number and (index_number in owned_elsewhere or index_number in claimed):
+            result.skipped.append(
+                f'Row {r["line"]}: index number "{index_number}" already belongs to '
+                f'another student, so it was left off {r["student_id"]}'
+            )
+            index_number = ''
+        elif index_number:
+            claimed.add(index_number)
+
+        # bulk_create and bulk_update do not call save(), so the empty-string
+        # to NULL conversion that keeps the unique constraint happy has to
+        # happen here.
+        index_value = index_number or None
+        group = groups.get(r['group_name'].lower()) if r['group_name'] else None
+
+        found = existing.get(key)
+        if found is None:
+            to_create.append(Student(
+                student_id=r['student_id'], name=r['name'],
+                programme=r['programme'], level=r['level'],
+                group=group, index_number=index_value,
+            ))
+        else:
+            found.name = r['name']
+            found.programme = r['programme']
+            found.level = r['level']
+            found.group = group
+            # Only overwrite an index number when the file supplies a usable
+            # one. A blank column, or one dropped for clashing, must not erase
+            # the number already on file.
+            if index_value:
+                found.index_number = index_value
+            to_update.append(found)
+
+    _apply(Student, to_create, to_update,
+           ['name', 'programme', 'level', 'group', 'index_number'], result)
 
 
 KINDS = {

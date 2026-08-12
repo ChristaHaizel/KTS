@@ -5,7 +5,9 @@ from datetime import time
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from . import charts
 from .accounts import create_student_account
@@ -1888,7 +1890,10 @@ class CsvImportTests(TestCase):
         )
         self.assertEqual(Lecturer.objects.count(), 1)
         self.assertEqual(Lecturer.objects.get().name, 'Second')
-        self.assertEqual(result.total, 2)
+        # Two rows, one record: total counts records, repeated explains the gap.
+        self.assertEqual(result.rows_read, 2)
+        self.assertEqual(result.repeated, 1)
+        self.assertEqual(result.total, 1)
 
     # --- references are created rather than refused --------------------------
 
@@ -2516,6 +2521,69 @@ class RepeatedIdentifierTests(TestCase):
                 result = run_import(kind, csv_upload(text))
                 self.assertEqual(result.repeated, 1)
                 self.assertEqual(result.records, 1)
+
+
+class ImportScaleTests(TestCase):
+    """A per-row import is fine on a local file-backed database and fails on a
+    networked one, where every query is a round trip. These pin the shape."""
+
+    def test_a_large_student_import_is_a_handful_of_queries(self):
+        # A bound, not an exact count: writes are batched, so the number moves
+        # in steps with the file size. What must hold is that it is a handful
+        # rather than a multiple of the row count.
+        rows = '\n'.join(
+            f'205{i:05d},72{i:05d},Student {i},BSc Computer Science,400,CS Level 400'
+            for i in range(400)
+        )
+        upload = csv_upload(
+            'student_id,index_number,name,programme,level,group\n' + rows + '\n')
+        with CaptureQueriesContext(connection) as ctx:
+            result = run_import('students', upload)
+        self.assertEqual(result.created, 400)
+        self.assertLess(len(ctx), 20, f'{len(ctx)} queries for 400 rows')
+
+    def test_query_count_does_not_grow_with_the_file(self):
+        def queries_for(count):
+            Student.objects.all().delete()
+            StudentGroup.objects.all().delete()
+            rows = '\n'.join(f'205{i:05d},Student {i}' for i in range(count))
+            with CaptureQueriesContext(connection) as ctx:
+                run_import('students', csv_upload(f'student_id,name\n{rows}\n'))
+            return len(ctx)
+
+        small, large = queries_for(10), queries_for(500)
+        self.assertEqual(Student.objects.count(), 500)
+        self.assertEqual(
+            small, large,
+            f'{small} queries for 10 rows but {large} for 500 - it scales per row',
+        )
+
+    def test_every_kind_imports_in_a_bounded_number_of_queries(self):
+        files = {
+            'lecturers': 'name,email\n' + '\n'.join(
+                f'L{i},l{i}@x.gh' for i in range(200)) + '\n',
+            'rooms': 'name,capacity\n' + '\n'.join(
+                f'Room {i},50' for i in range(200)) + '\n',
+            'courses': 'code,name,expected_students\n' + '\n'.join(
+                f'C{i},Course {i},40' for i in range(200)) + '\n',
+        }
+        for kind, text in files.items():
+            with self.subTest(kind=kind):
+                with CaptureQueriesContext(connection) as ctx:
+                    run_import(kind, csv_upload(text))
+                self.assertLess(
+                    len(ctx), 20,
+                    f'{kind} took {len(ctx)} queries for 200 rows',
+                )
+
+    def test_a_reimport_of_the_same_file_is_also_bounded(self):
+        """The update path must not fall back to one query per row either."""
+        text = 'name,email\n' + '\n'.join(f'L{i},l{i}@x.gh' for i in range(200)) + '\n'
+        run_import('lecturers', csv_upload(text))
+        with CaptureQueriesContext(connection) as ctx:
+            result = run_import('lecturers', csv_upload(text))
+        self.assertEqual(result.updated, 200)
+        self.assertLess(len(ctx), 20)
 
 
 class CsvImportViewTests(TestCase):

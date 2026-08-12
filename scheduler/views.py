@@ -327,7 +327,7 @@ def data_import(request):
                     messages.warning(
                         request,
                         f'{result.repeated} row(s) repeated a '
-                        f'{KINDS[kind]["key"]} used earlier in the file, so '
+                        f'{" + ".join(KINDS[kind]["key"])} used earlier in the file, so '
                         f'they overwrote each other instead of adding records. That is '
                         f'why {result.rows_read} rows became {result.records} record(s). '
                         f'The identifier was read from your "{column}" column'

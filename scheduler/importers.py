@@ -21,8 +21,9 @@ corrected file fixes data instead of duplicating it.
 import csv
 import io
 import re
+from datetime import datetime
 
-from .models import Course, Lecturer, Room, Student, StudentGroup
+from .models import DAY_CHOICES, Course, Lecturer, Room, Student, StudentGroup, TimeSlot
 
 # Excel writes UTF-8 with a byte-order mark, which would otherwise turn the
 # first header into "﻿name" and fail every lookup against it.
@@ -80,6 +81,13 @@ ALIASES = {
         'department', 'discipline',
     ],
     'level': ['level', 'yearofstudy', 'stage', 'year', 'currentlevel'],
+    'day': ['day', 'weekday', 'dayofweek', 'days'],
+    'start_time': [
+        'starttime', 'start', 'from', 'begins', 'begin', 'startsat', 'timefrom',
+    ],
+    'end_time': [
+        'endtime', 'end', 'to', 'finishes', 'finish', 'until', 'endsat', 'timeto',
+    ],
     'group': [
         'group', 'studentgroup', 'cohort', 'section', 'classgroup', 'class',
         'programmeandlevel', 'teachinggroup',
@@ -128,8 +136,16 @@ class ImportResult:
 
     @property
     def identifier_column(self):
-        """The header the identifying column was read from, for diagnosis."""
-        return self.mapping.get(self.identifier_field)
+        """The header(s) the key was read from, for diagnosis.
+
+        A time slot is keyed by three columns together, so this can name more
+        than one.
+        """
+        headers = [
+            self.mapping.get(f) for f in (self.identifier_field or ())
+            if self.mapping.get(f)
+        ]
+        return ' + '.join(headers) if headers else None
 
 
 def _clean(value):
@@ -281,6 +297,35 @@ def _import_courses(rows, result):
            ['name', 'lecturer', 'expected_students'], result)
 
 
+# "MON", "Monday", "monday", "Mon." all mean the same day. Deliberately no
+# single-letter forms: T and S are ambiguous, and guessing is worse than asking.
+DAY_LOOKUP = {}
+for _code, _label in DAY_CHOICES:
+    DAY_LOOKUP[_code.lower()] = _code
+    DAY_LOOKUP[_label.lower()] = _code
+    DAY_LOOKUP[_label.lower()[:3]] = _code
+
+TIME_FORMATS = ['%H:%M', '%H:%M:%S', '%I:%M%p', '%I:%M %p', '%I%p', '%I %p', '%H%M']
+
+
+def _normalise_day(value):
+    return DAY_LOOKUP.get(re.sub(r'[^a-z]', '', _clean(value).lower()), '')
+
+
+def _parse_time(value):
+    """Read a time as a spreadsheet is likely to have written it."""
+    text = _clean(value).upper().replace('.', ':')
+    text = re.sub(r'\s+', ' ', text)
+    if not text:
+        return None
+    for fmt in TIME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
 def _normalise_level(value):
     """Accept "400", "Level 400", "L400", "4" and similar."""
     text = _clean(value)
@@ -387,6 +432,51 @@ def _import_students(rows, result):
            ['name', 'programme', 'level', 'group', 'index_number'], result)
 
 
+def _import_timeslots(rows, result):
+    wanted = {}
+    for line, row in rows:
+        day = _normalise_day(row.get('day'))
+        if not day:
+            result.skipped.append(
+                f'Row {line}: "{_clean(row.get("day"))}" is not a weekday. Use '
+                f'Monday to Friday, or MON to FRI.'
+            )
+            continue
+
+        start = _parse_time(row.get('start_time'))
+        end = _parse_time(row.get('end_time'))
+        if start is None or end is None:
+            which = 'start' if start is None else 'end'
+            result.skipped.append(
+                f'Row {line}: cannot read the {which} time '
+                f'("{_clean(row.get(which + "_time"))}"). Use 08:00 or 8:00 AM.'
+            )
+            continue
+        if end <= start:
+            result.skipped.append(
+                f'Row {line}: {day} {start:%H:%M}-{end:%H:%M} ends before it starts.'
+            )
+            continue
+
+        wanted[(day, start, end)] = (day, start, end)
+
+    # A slot is identified by all three fields together, so existing rows are
+    # matched on the triple rather than on any one column.
+    existing = {
+        (t.day, t.start_time, t.end_time)
+        for t in TimeSlot.objects.filter(day__in={d for d, _s, _e in wanted})
+    }
+    to_create = [
+        TimeSlot(day=day, start_time=start, end_time=end)
+        for key, (day, start, end) in wanted.items()
+        if key not in existing
+    ]
+    # Nothing to update: the three fields are the whole record, so a slot that
+    # already exists is already correct.
+    _apply(TimeSlot, to_create, [], [], result)
+    result.updated += len(wanted) - len(to_create)
+
+
 KINDS = {
     'lecturers': {
         'label': 'Lecturers',
@@ -397,7 +487,7 @@ KINDS = {
         # What records are matched on, which is not always what identifies the
         # file: a rooms file is recognised by its capacity column, but its
         # records are keyed by name.
-        'key': 'email',
+        'key': ('email',),
         'handler': _import_lecturers,
         'sample': [
             ['Dr. Kwame Mensah', 'kmensah@knust.edu.gh'],
@@ -409,7 +499,7 @@ KINDS = {
         'label': 'Rooms',
         'columns': ['name', 'capacity'],
         'identifies': ['capacity'],
-        'key': 'name',
+        'key': ('name',),
         'handler': _import_rooms,
         'sample': [
             ['PB 001 Lecture Hall', '250'],
@@ -421,7 +511,7 @@ KINDS = {
         'label': 'Courses',
         'columns': ['code', 'name', 'expected_students', 'lecturer_email'],
         'identifies': ['code'],
-        'key': 'code',
+        'key': ('code',),
         'handler': _import_courses,
         'sample': [
             ['CS 151', 'Introduction to Programming', '220', 'kmensah@knust.edu.gh'],
@@ -436,7 +526,7 @@ KINDS = {
         'label': 'Students',
         'columns': ['student_id', 'index_number', 'name', 'programme', 'level', 'group'],
         'identifies': ['student_id'],
-        'key': 'student_id',
+        'key': ('student_id',),
         'handler': _import_students,
         'sample': [
             ['20512001', '7212001', 'Ama Serwaa', 'BSc Computer Science', '100', 'CS Level 100'],
@@ -446,6 +536,24 @@ KINDS = {
             'Matched on student_id, which is also what they sign in with. Only '
             'that column is required; a group that does not exist yet is created '
             'for you, and level accepts "400" or "Level 400".'
+        ),
+    },
+    'timeslots': {
+        'label': 'Time Slots',
+        'columns': ['day', 'start_time', 'end_time'],
+        'identifies': ['day'],
+        # All three fields together are the record, so all three are the key.
+        'key': ('day', 'start_time', 'end_time'),
+        'handler': _import_timeslots,
+        'sample': [
+            ['Monday', '08:00', '10:00'],
+            ['Monday', '10:00', '12:00'],
+            ['Tuesday', '08:00', '10:00'],
+        ],
+        'note': (
+            'A slot is the day plus its start and end, so re-importing the same '
+            'file adds nothing. Days may be written Monday or MON; times 08:00 '
+            'or 8:00 AM.'
         ),
     },
 }
@@ -597,17 +705,19 @@ def _count_repeats(rows, spec, result):
     """
     # The key records are matched on, not the column that identifies the file
     # type. For rooms those differ, and using the wrong one counts no repeats.
-    identifier = spec['key']
-    result.identifier_field = identifier
+    # A time slot is keyed by all three of its fields together.
+    fields = spec['key']
+    result.identifier_field = fields
     seen = set()
     repeated = []
     for _line, row in rows:
-        value = _clean(row.get(identifier)).lower()
-        if not value:
+        parts = [_clean(row.get(f)) for f in fields]
+        if not all(parts):
             continue
-        if value in seen:
-            repeated.append(_clean(row.get(identifier)))
-        seen.add(value)
+        key = tuple(p.lower() for p in parts)
+        if key in seen:
+            repeated.append(' '.join(parts))
+        seen.add(key)
     result.repeated = len(repeated)
     # A few is enough to recognise the pattern; the whole list is noise.
     result.repeated_examples = list(dict.fromkeys(repeated))[:5]

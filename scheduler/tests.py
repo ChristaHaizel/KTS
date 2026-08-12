@@ -2523,6 +2523,128 @@ class RepeatedIdentifierTests(TestCase):
                 self.assertEqual(result.records, 1)
 
 
+class TimeSlotImportTests(TestCase):
+    def test_the_basic_file_imports(self):
+        result = run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Monday,10:00,12:00\n'
+            'Tuesday,08:00,10:00\n'))
+        self.assertEqual(result.created, 3)
+        self.assertEqual(TimeSlot.objects.count(), 3)
+
+    def test_days_may_be_written_any_of_the_usual_ways(self):
+        for text, expected in [('Monday', 'MON'), ('MON', 'MON'), ('mon', 'MON'),
+                               ('Mon.', 'MON'), ('THURSDAY', 'THU'), ('thu', 'THU')]:
+            with self.subTest(day=text):
+                TimeSlot.objects.all().delete()
+                run_import('timeslots', csv_upload(
+                    f'day,start_time,end_time\n{text},08:00,10:00\n'))
+                self.assertEqual(TimeSlot.objects.get().day, expected)
+
+    def test_times_may_be_written_any_of_the_usual_ways(self):
+        for text, hour in [('08:00', 8), ('8:00', 8), ('8:00 AM', 8),
+                           ('1:00 PM', 13), ('13:00', 13), ('13:00:00', 13)]:
+            with self.subTest(time=text):
+                TimeSlot.objects.all().delete()
+                run_import('timeslots', csv_upload(
+                    f'day,start_time,end_time\nMonday,{text},23:00\n'))
+                self.assertEqual(TimeSlot.objects.get().start_time.hour, hour)
+
+    def test_alternative_headers_are_recognised(self):
+        result = run_import('timeslots', csv_upload(
+            'Weekday,From,To\nMonday,08:00,10:00\n'))
+        self.assertEqual(result.created, 1)
+
+    def test_reimporting_the_same_file_adds_nothing(self):
+        text = ('day,start_time,end_time\n'
+                'Monday,08:00,10:00\nTuesday,08:00,10:00\n')
+        run_import('timeslots', csv_upload(text))
+        result = run_import('timeslots', csv_upload(text))
+        self.assertEqual(TimeSlot.objects.count(), 2)
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 2)
+
+    def test_a_slot_differs_by_any_of_its_three_fields(self):
+        run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Monday,08:00,09:00\n'
+            'Tuesday,08:00,10:00\n'))
+        self.assertEqual(TimeSlot.objects.count(), 3)
+
+    def test_an_unreadable_day_is_skipped_with_a_reason(self):
+        result = run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Sometime,08:00,10:00\n'))
+        self.assertEqual(result.created, 1)
+        self.assertIn('not a weekday', result.skipped[0])
+
+    def test_an_unreadable_time_is_skipped_with_a_reason(self):
+        result = run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Tuesday,morning,10:00\n'))
+        self.assertEqual(result.created, 1)
+        self.assertIn('cannot read the start time', result.skipped[0])
+
+    def test_a_slot_ending_before_it_starts_is_skipped(self):
+        result = run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Monday,10:00,08:00\n'))
+        self.assertEqual(TimeSlot.objects.count(), 1)
+        self.assertIn('ends before it starts', result.skipped[0])
+
+    def test_a_file_of_nothing_but_bad_slots_is_refused_whole(self):
+        """Right headers, nothing usable in them - one sentence beats a list."""
+        with self.assertRaises(CsvImportError) as ctx:
+            run_import('timeslots', csv_upload(
+                'day,start_time,end_time\nMonday,10:00,08:00\n'))
+        self.assertIn('None of the 1 rows', str(ctx.exception))
+        self.assertEqual(TimeSlot.objects.count(), 0)
+
+    def test_repeats_within_the_file_are_counted_on_the_whole_slot(self):
+        result = run_import('timeslots', csv_upload(
+            'day,start_time,end_time\n'
+            'Monday,08:00,10:00\n'
+            'Monday,08:00,10:00\n'
+            'Monday,10:00,12:00\n'))
+        self.assertEqual(result.rows_read, 3)
+        self.assertEqual(result.repeated, 1)
+        self.assertEqual(TimeSlot.objects.count(), 2)
+
+    def test_a_timeslots_file_is_not_taken_for_another_kind(self):
+        for other in ('lecturers', 'rooms', 'courses', 'students'):
+            with self.subTest(into=other):
+                with self.assertRaises(CsvImportError):
+                    run_import(other, csv_upload(template_csv('timeslots')))
+
+    def test_another_kinds_file_is_not_taken_for_timeslots(self):
+        for other in ('lecturers', 'rooms', 'courses', 'students'):
+            with self.subTest(uploading=other):
+                with self.assertRaises(CsvImportError):
+                    run_import('timeslots', csv_upload(template_csv(other)))
+
+    def test_a_large_import_stays_bounded(self):
+        rows = []
+        for day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'):
+            for hour in range(7, 20):
+                rows.append(f'{day},{hour:02d}:00,{hour + 1:02d}:00')
+        with CaptureQueriesContext(connection) as ctx:
+            result = run_import(
+                'timeslots', csv_upload('day,start_time,end_time\n' + '\n'.join(rows) + '\n'))
+        self.assertEqual(result.created, 65)
+        self.assertLess(len(ctx), 20)
+
+    def test_the_page_offers_time_slots(self):
+        self.client.force_login(make_admin('slotadmin'))
+        response = self.client.get('/import/?kind=timeslots')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Time Slots')
+
+
 class ImportScaleTests(TestCase):
     """A per-row import is fine on a local file-backed database and fails on a
     networked one, where every query is a round trip. These pin the shape."""

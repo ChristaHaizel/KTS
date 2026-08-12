@@ -11,11 +11,19 @@
             </div>
             <form method="post">
                 {% csrf_token %}
-                <div class="mb-3">
-                    <label class="form-label">Group Name</label>
-                    {{ form.name }}
-                    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                <div class="row g-3 mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label">Group Name</label>
+                        {{ form.name }}
+                        {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Number of students <span class="text-faint">(optional)</span></label>
+                        {{ form.size }}
+                        {% if form.size.errors %}<div class="text-danger small mt-1">{{ form.size.errors|join:", " }}</div>{% endif %}
+                    </div>
                 </div>
+                <div class="form-hint small mb-3">{{ form.size.help_text }}</div>
                 <div class="mb-4">
                     <div class="checkbox-grid-header">
                         <label class="form-label mb-0" for="course-count">Courses</label>

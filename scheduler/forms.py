@@ -43,10 +43,19 @@ class RoomForm(forms.ModelForm):
 class StudentGroupForm(forms.ModelForm):
     class Meta:
         model = StudentGroup
-        fields = ['name', 'courses']
+        fields = ['name', 'size', 'courses']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. CS Level 400'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. CS Level 400 Group 1'}),
+            'size': forms.NumberInput(attrs={'class': 'form-control', 'min': 1, 'placeholder': 'e.g. 45'}),
             'courses': forms.CheckboxSelectMultiple,
+        }
+        labels = {'size': 'Number of students'}
+        help_texts = {
+            'size': (
+                'How many sit in this group. This is what rooms are matched '
+                'against, so a cohort split in two is sized by the half that '
+                'actually attends.'
+            ),
         }
 
 

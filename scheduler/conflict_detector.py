@@ -38,11 +38,13 @@ def detect_conflicts(exclude_entry=None, check_timeslot=None, check_room=None):
                     'severity': 'medium'
                 })
 
-            if exclude_entry.course.expected_students > check_room.capacity:
+            needed = exclude_entry.student_group.size_for(exclude_entry.course)
+            if needed > check_room.capacity:
                 conflicts.append({
                     'type': 'Room Capacity Mismatch',
                     'description': f'{check_room.name} (capacity {check_room.capacity}) is too small for '
-                                   f'{exclude_entry.course.code} (expected {exclude_entry.course.expected_students})',
+                                   f'{exclude_entry.course.code} with '
+                                   f'{exclude_entry.student_group.name} ({needed} students)',
                     'severity': 'low'
                 })
 
@@ -84,10 +86,15 @@ def detect_conflicts(exclude_entry=None, check_timeslot=None, check_room=None):
         else:
             seen_group_slots[group_key] = entry
 
-        if entry.room.capacity < entry.course.expected_students:
+        # Sized by the group in the room, not the course's whole enrolment: a
+        # cohort split across groups never sits together.
+        needed = entry.student_group.size_for(entry.course)
+        if entry.room.capacity < needed:
             conflicts.append({
                 'type': 'Room Capacity Mismatch',
-                'description': f'{entry.room.name} (capacity {entry.room.capacity}) is too small for {entry.course.code} (expected {entry.course.expected_students} students)',
+                'description': f'{entry.room.name} (capacity {entry.room.capacity}) is too small for '
+                               f'{entry.course.code} with {entry.student_group.name} '
+                               f'({needed} students)',
                 'severity': 'low'
             })
 

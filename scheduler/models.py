@@ -67,11 +67,45 @@ class Course(models.Model):
         return f"{self.code} - {self.name}"
 
 class StudentGroup(models.Model):
+    """A teaching group - the unit a timetable is actually built for.
+
+    A cohort too large for any room is split across several of these, and each
+    one is scheduled separately, so Group 1 and Group 2 sit different
+    timetables for the same courses.
+    """
     name = models.CharField(max_length=100, unique=True)
     courses = models.ManyToManyField(Course, blank=True)
+    # How many students sit in this group. The whole point of splitting a
+    # cohort is that the parts fit rooms the whole does not, so a class must be
+    # sized against the group attending it rather than against the course's
+    # total enrolment.
+    size = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text=(
+            'How many students are in this group. Leave blank to count the '
+            'students assigned to it, or fall back to the course total.'
+        ),
+    )
 
     class Meta:
         ordering = ['name']
+
+    def size_for(self, course):
+        """How many people this class actually has to seat.
+
+        The declared size wins, then the students on file, and only failing
+        both does it fall back to the course's total - which is the whole
+        cohort and therefore an overestimate for any group that is a split of
+        one.
+        """
+        if self.size:
+            return self.size
+        # Uses the annotation when the caller supplied one, so the generator
+        # does not run a count per gene per generation.
+        counted = getattr(self, 'enrolled_count', None)
+        if counted is None:
+            counted = self.students.count()
+        return counted or course.expected_students
 
     def __str__(self):
         return self.name

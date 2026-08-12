@@ -51,24 +51,31 @@ COURSES = [
     ('CS 459', 'Final Year Project', 90, 4),
 ]
 
-# (group name, course codes) - deliberately overlapping so conflict detection has work to do
+# (group name, size, course codes)
+#
+# The lower levels are too large for any room, so each is split in two and the
+# halves are timetabled separately - which is the point of a group. Level 400
+# is small enough to stay whole, so both shapes appear in the demo data.
 GROUPS = [
-    ('CS Level 100', ['CS 151', 'CS 153', 'CS 155']),
-    ('CS Level 200', ['CS 251', 'CS 253', 'CS 255']),
-    ('CS Level 300', ['CS 351', 'CS 353', 'CS 355', 'CS 357']),
-    ('CS Level 400', ['CS 451', 'CS 453', 'CS 455', 'CS 457', 'CS 459']),
+    ('CS Level 100 Group 1', 110, ['CS 151', 'CS 153', 'CS 155']),
+    ('CS Level 100 Group 2', 110, ['CS 151', 'CS 153', 'CS 155']),
+    ('CS Level 200 Group 1', 80, ['CS 251', 'CS 253', 'CS 255']),
+    ('CS Level 200 Group 2', 80, ['CS 251', 'CS 253', 'CS 255']),
+    ('CS Level 300 Group 1', 65, ['CS 351', 'CS 353', 'CS 355', 'CS 357']),
+    ('CS Level 300 Group 2', 65, ['CS 351', 'CS 353', 'CS 355', 'CS 357']),
+    ('CS Level 400', 90, ['CS 451', 'CS 453', 'CS 455', 'CS 457', 'CS 459']),
 ]
 
 PROGRAMME = 'BSc Computer Science'
 
 # (student id, index number, name, level, group name)
 STUDENTS = [
-    ('20512001', '7212001', 'Ama Serwaa', '100', 'CS Level 100'),
-    ('20512002', '7212002', 'Kojo Amankwah', '100', 'CS Level 100'),
-    ('20412003', '7212003', 'Abena Frimpong', '200', 'CS Level 200'),
-    ('20412004', '7212004', 'Yaw Boadu', '200', 'CS Level 200'),
-    ('20312005', '7212005', 'Esi Quartey', '300', 'CS Level 300'),
-    ('20312006', '7212006', 'Kwesi Appiah', '300', 'CS Level 300'),
+    ('20512001', '7212001', 'Ama Serwaa', '100', 'CS Level 100 Group 1'),
+    ('20512002', '7212002', 'Kojo Amankwah', '100', 'CS Level 100 Group 2'),
+    ('20412003', '7212003', 'Abena Frimpong', '200', 'CS Level 200 Group 1'),
+    ('20412004', '7212004', 'Yaw Boadu', '200', 'CS Level 200 Group 2'),
+    ('20312005', '7212005', 'Esi Quartey', '300', 'CS Level 300 Group 1'),
+    ('20312006', '7212006', 'Kwesi Appiah', '300', 'CS Level 300 Group 2'),
     ('20212007', '7212007', 'Adjoa Mensimah', '400', 'CS Level 400'),
     ('20212008', '7212008', 'Nana Yaw Osei', '400', 'CS Level 400'),
 ]
@@ -148,8 +155,13 @@ class Command(BaseCommand):
             courses[code] = course
 
         groups = {}
-        for group_name, course_codes in GROUPS:
-            group, _ = StudentGroup.objects.get_or_create(name=group_name)
+        for group_name, size, course_codes in GROUPS:
+            group, _ = StudentGroup.objects.get_or_create(
+                name=group_name, defaults={'size': size}
+            )
+            if group.size != size:
+                group.size = size
+                group.save(update_fields=['size'])
             group.courses.set([courses[c] for c in course_codes])
             groups[group_name] = group
 

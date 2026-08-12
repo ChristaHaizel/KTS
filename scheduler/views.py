@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db.models import Count
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -645,7 +646,10 @@ def room_delete(request, pk):
 @login_required
 @admin_required
 def studentgroup_list(request):
-    groups = StudentGroup.objects.all().order_by('name').prefetch_related('courses')
+    groups = (StudentGroup.objects
+              .order_by('name')
+              .prefetch_related('courses')
+              .annotate(enrolled_count=Count('students')))
     return render(request, 'scheduler/studentgroups.html', {
         'groups': _paginate(request, groups),
         'total_count': groups.count(),

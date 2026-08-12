@@ -44,8 +44,9 @@ def greedy_schedule(enrollments, rooms, timeslots):
     used_group_slots = set()
 
     # Largest classes first: they have the fewest rooms that fit them, so
-    # placing them while the timetable is empty avoids painting them into a corner.
-    ordered = sorted(enrollments, key=lambda pair: -pair[1].expected_students)
+    # placing them while the timetable is empty avoids painting them into a
+    # corner. Sized by the group attending, as everywhere else.
+    ordered = sorted(enrollments, key=lambda pair: -pair[0].size_for(pair[1]))
 
     for group, course in ordered:
         lecturer_id = course.lecturer_id
@@ -57,7 +58,8 @@ def greedy_schedule(enrollments, rooms, timeslots):
             if lecturer_id and (timeslot.id, lecturer_id) in used_lecturer_slots:
                 continue
 
-            fitting = [r for r in rooms if r.capacity >= course.expected_students] or rooms
+            needed = group.size_for(course)
+            fitting = [r for r in rooms if r.capacity >= needed] or rooms
             for room in fitting:
                 if (timeslot.id, room.id) in used_room_slots:
                     continue

@@ -2105,6 +2105,94 @@ class CsvImportTests(TestCase):
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
 
 
+class SplitCohortTests(TestCase):
+    """A cohort too large for any room is split across groups, and each half is
+    timetabled separately. That is what a student group is for."""
+
+    def setUp(self):
+        self.lecturer = Lecturer.objects.create(name='Dr Mensah', email='m@knust.edu.gh')
+        # Ninety students, no room holding more than fifty.
+        self.course = Course.objects.create(
+            code='CS 451', name='Distributed Systems',
+            expected_students=90, lecturer=self.lecturer,
+        )
+        self.other = Course.objects.create(
+            code='CS 453', name='Machine Learning',
+            expected_students=90, lecturer=self.lecturer,
+        )
+        self.g1 = StudentGroup.objects.create(name='CS 400 Group 1', size=45)
+        self.g2 = StudentGroup.objects.create(name='CS 400 Group 2', size=45)
+        for group in (self.g1, self.g2):
+            group.courses.set([self.course, self.other])
+
+        for name in ('PB 001', 'PB 012', 'SF 21'):
+            Room.objects.create(name=name, capacity=50)
+        for day in ('MON', 'TUE', 'WED'):
+            for start, end in ((time(8, 0), time(10, 0)), (time(10, 0), time(12, 0))):
+                TimeSlot.objects.create(day=day, start_time=start, end_time=end)
+
+    def test_a_class_is_sized_by_the_group_not_the_course(self):
+        self.assertEqual(self.g1.size_for(self.course), 45)
+        self.assertNotEqual(self.g1.size_for(self.course), self.course.expected_students)
+
+    def test_a_room_holding_the_group_is_not_reported_as_too_small(self):
+        """It used to be, because the whole cohort was measured against it."""
+        run_genetic_algorithm()
+        for conflict in detect_conflicts():
+            self.assertNotEqual(conflict['type'], 'Room Capacity Mismatch')
+
+    def test_each_group_gets_its_own_class(self):
+        run_genetic_algorithm()
+        entries = TimetableEntry.objects.filter(is_active=True, course=self.course)
+        self.assertEqual(entries.count(), 2)
+        self.assertEqual(
+            {e.student_group_id for e in entries}, {self.g1.pk, self.g2.pk}
+        )
+
+    def test_the_two_groups_are_not_scheduled_at_the_same_time(self):
+        """One lecturer cannot teach both halves at once."""
+        run_genetic_algorithm()
+        for course in (self.course, self.other):
+            slots = [
+                e.timeslot_id for e in
+                TimetableEntry.objects.filter(is_active=True, course=course)
+            ]
+            with self.subTest(course=course.code):
+                self.assertEqual(len(slots), len(set(slots)))
+
+    def test_a_split_cohort_can_be_scheduled_perfectly(self):
+        result = run_genetic_algorithm()
+        self.assertTrue(result['success'])
+        self.assertEqual(result['violations']['capacity'], 0)
+
+    def test_falls_back_to_students_on_file_when_size_is_blank(self):
+        loose = StudentGroup.objects.create(name='Unsized')
+        loose.courses.set([self.course])
+        for i in range(12):
+            Student.objects.create(student_id=f'2050{i:04d}', name=f'S{i}', group=loose)
+        self.assertEqual(loose.size_for(self.course), 12)
+
+    def test_falls_back_to_the_course_total_when_nothing_else_is_known(self):
+        """Without a size or any students, the course's own figure is all there
+        is - the previous behaviour, kept for groups nobody has sized."""
+        bare = StudentGroup.objects.create(name='Bare')
+        bare.courses.set([self.course])
+        self.assertEqual(bare.size_for(self.course), 90)
+
+    def test_a_declared_size_beats_the_students_on_file(self):
+        """Rooms are booked before every student has registered."""
+        self.assertEqual(Student.objects.filter(group=self.g1).count(), 0)
+        self.assertEqual(self.g1.size_for(self.course), 45)
+
+    def test_an_oversized_group_is_still_flagged(self):
+        """The check must still fire when the group genuinely does not fit."""
+        huge = StudentGroup.objects.create(name='Huge', size=500)
+        huge.courses.set([self.course])
+        run_genetic_algorithm()
+        types = {c['type'] for c in detect_conflicts()}
+        self.assertIn('Room Capacity Mismatch', types)
+
+
 class StudentFieldTests(TestCase):
     """Student ID, index number, programme and level are four separate things."""
 

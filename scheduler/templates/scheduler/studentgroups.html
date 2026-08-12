@@ -15,6 +15,7 @@
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Students</th>
                     <th>Courses</th>
                     <th style="width:100px;">Actions</th>
                 </tr>
@@ -23,6 +24,15 @@
                 {% for group in groups %}
                 <tr>
                     <td class="cell-primary">{{ group.name }}</td>
+                    <td>
+                        {% if group.size %}
+                            {{ group.size }}
+                        {% elif group.enrolled_count %}
+                            {{ group.enrolled_count }} <span class="text-faint">on file</span>
+                        {% else %}
+                            <span class="text-faint">&mdash;</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% for course in group.courses.all %}
                             <span class="day-badge badge-spaced">{{ course.code }}</span>
@@ -43,7 +53,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="3" class="empty-state">
+                    <td colspan="4" class="empty-state">
                         <i class="bi bi-people"></i>
                         No student groups yet. Click "Add Student Group" to create one.
                     </td>

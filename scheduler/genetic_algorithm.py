@@ -1,6 +1,7 @@
 import random
 import time
 from django.db import transaction
+from django.db.models import Count
 from .models import Room, TimeSlot, StudentGroup, TimetableEntry
 
 POPULATION_SIZE = 30
@@ -54,7 +55,11 @@ def count_violations(individual):
             counts['group'] += 1
         seen_group_slots.add(grp_key)
 
-        if gene['room'].capacity < gene['course'].expected_students:
+        # Sized against the group sitting the class, not the course's total.
+        # A cohort is split precisely so the parts fit rooms the whole does
+        # not; measuring against the whole would report every split class as
+        # over capacity and push the search towards halls nobody needs.
+        if gene['room'].capacity < gene['group'].size_for(gene['course']):
             counts['capacity'] += 1
 
     return counts
@@ -80,9 +85,13 @@ def load_problem():
     by two groups needs two scheduled classes; a group must never be given a
     course it is not enrolled in.
     """
+    # Annotated so size_for() never runs a count per gene per generation.
+    groups = (StudentGroup.objects
+              .prefetch_related('courses__lecturer')
+              .annotate(enrolled_count=Count('students')))
     enrollments = [
         (group, course)
-        for group in StudentGroup.objects.prefetch_related('courses__lecturer')
+        for group in groups
         for course in group.courses.all()
     ]
     return (
@@ -106,7 +115,8 @@ def run_genetic_algorithm(weights=None):
         individual = []
         used_slots = set()
         for group, course in enrollments:
-            suitable_rooms = [r for r in rooms if r.capacity >= course.expected_students] or rooms
+            needed = group.size_for(course)
+            suitable_rooms = [r for r in rooms if r.capacity >= needed] or rooms
             attempts = 0
             while attempts < 100:
                 room = random.choice(suitable_rooms)
@@ -131,7 +141,8 @@ def run_genetic_algorithm(weights=None):
         used_slots = {(g['timeslot'].id, g['room'].id) for g in individual}
         for gene in individual:
             if random.random() < mutation_rate:
-                suitable_rooms = [r for r in rooms if r.capacity >= gene['course'].expected_students] or rooms
+                needed = gene['group'].size_for(gene['course'])
+                suitable_rooms = [r for r in rooms if r.capacity >= needed] or rooms
                 old_key = (gene['timeslot'].id, gene['room'].id)
                 used_slots.discard(old_key)
                 attempts = 0

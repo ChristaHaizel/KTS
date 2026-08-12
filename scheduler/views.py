@@ -304,24 +304,44 @@ def data_import(request):
                 messages.error(request, str(exc))
             else:
                 logger.info(
-                    '%s imported %s: %d created, %d updated, %d skipped',
-                    request.user.username, kind,
-                    result.created, result.updated, len(result.skipped),
+                    '%s imported %s: %d rows -> %d created, %d updated, '
+                    '%d repeated, %d skipped',
+                    request.user.username, kind, result.rows_read,
+                    result.created, result.updated, result.repeated,
+                    len(result.skipped),
                 )
                 summary = (
-                    f'{KINDS[kind]["label"]}: {result.created} added, '
-                    f'{result.updated} updated.'
+                    f'{KINDS[kind]["label"]}: read {result.rows_read} row(s), '
+                    f'{result.created} added, {result.updated} updated.'
                 )
                 if result.auto_created:
                     summary += f' {len(result.auto_created)} referenced record(s) created.'
                 messages.success(request, summary)
+
+                # The headline number people check is how many records exist
+                # afterwards, and rows collapsing into each other is the only
+                # thing that makes it smaller than the file. Say so plainly.
+                if result.repeated:
+                    column = result.identifier_column
+                    examples = ', '.join(result.repeated_examples)
+                    messages.warning(
+                        request,
+                        f'{result.repeated} row(s) repeated a '
+                        f'{KINDS[kind]["key"]} used earlier in the file, so '
+                        f'they overwrote each other instead of adding records. That is '
+                        f'why {result.rows_read} rows became {result.records} record(s). '
+                        f'The identifier was read from your "{column}" column'
+                        f'{f" - repeated values include {examples}" if examples else ""}. '
+                        f'If that is the wrong column, rename or remove it and import again.',
+                    )
+
                 if result.skipped:
                     messages.warning(
                         request,
                         f'{len(result.skipped)} row(s) were skipped - listed below. '
                         f'Everything else was imported.',
                     )
-                else:
+                elif not result.repeated:
                     return redirect(f'{reverse("data_import")}?kind={kind}')
 
     return render(request, 'scheduler/import.html', {

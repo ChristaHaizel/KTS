@@ -102,14 +102,35 @@ class ImportResult:
         self.updated = 0
         self.auto_created = []   # things invented to satisfy a reference
         self.skipped = []        # rows that could not become a record
+        self.rows_read = 0
+        self.repeated = 0        # rows whose identifier a previous row already used
+        self.repeated_examples = []
+        self.mapping = {}        # our field -> the header it was read from
+        self.identifier_field = None
 
     @property
     def total(self):
+        """Successful upserts, which is one per row that was not skipped."""
         return self.created + self.updated
+
+    @property
+    def records(self):
+        """Distinct records touched.
+
+        Not the same as total: a row repeating an earlier row's identifier
+        overwrites it, so it counts as an operation but not as a record. This
+        is the number that ends up on the list page.
+        """
+        return self.total - self.repeated
 
     @property
     def imported_anything(self):
         return self.total > 0
+
+    @property
+    def identifier_column(self):
+        """The header the identifying column was read from, for diagnosis."""
+        return self.mapping.get(self.identifier_field)
 
 
 def _clean(value):
@@ -274,6 +295,10 @@ KINDS = {
         # What makes a file this kind of file. Uploading rooms into Lecturers
         # fails here, which is the mistake worth catching.
         'identifies': ['email'],
+        # What records are matched on, which is not always what identifies the
+        # file: a rooms file is recognised by its capacity column, but its
+        # records are keyed by name.
+        'key': 'email',
         'handler': _import_lecturers,
         'sample': [
             ['Dr. Kwame Mensah', 'kmensah@knust.edu.gh'],
@@ -285,6 +310,7 @@ KINDS = {
         'label': 'Rooms',
         'columns': ['name', 'capacity'],
         'identifies': ['capacity'],
+        'key': 'name',
         'handler': _import_rooms,
         'sample': [
             ['PB 001 Lecture Hall', '250'],
@@ -296,6 +322,7 @@ KINDS = {
         'label': 'Courses',
         'columns': ['code', 'name', 'expected_students', 'lecturer_email'],
         'identifies': ['code'],
+        'key': 'code',
         'handler': _import_courses,
         'sample': [
             ['CS 151', 'Introduction to Programming', '220', 'kmensah@knust.edu.gh'],
@@ -310,6 +337,7 @@ KINDS = {
         'label': 'Students',
         'columns': ['student_id', 'index_number', 'name', 'programme', 'level', 'group'],
         'identifies': ['student_id'],
+        'key': 'student_id',
         'handler': _import_students,
         'sample': [
             ['20512001', '7212001', 'Ama Serwaa', 'BSc Computer Science', '100', 'CS Level 100'],
@@ -457,14 +485,43 @@ def read_rows(upload, kind):
 
     if not rows:
         raise ImportError_('That file has a header row but no data in it.')
-    return rows
+    return rows, mapping
+
+
+def _count_repeats(rows, spec, result):
+    """How many rows reuse an identifier an earlier row already claimed.
+
+    Records are matched on that identifier, so a repeat overwrites rather than
+    adds. Counting the collapse here is the difference between "623 updated",
+    which sounds like success, and "623 rows overwrote each other", which is
+    what actually happened.
+    """
+    # The key records are matched on, not the column that identifies the file
+    # type. For rooms those differ, and using the wrong one counts no repeats.
+    identifier = spec['key']
+    result.identifier_field = identifier
+    seen = set()
+    repeated = []
+    for _line, row in rows:
+        value = _clean(row.get(identifier)).lower()
+        if not value:
+            continue
+        if value in seen:
+            repeated.append(_clean(row.get(identifier)))
+        seen.add(value)
+    result.repeated = len(repeated)
+    # A few is enough to recognise the pattern; the whole list is noise.
+    result.repeated_examples = list(dict.fromkeys(repeated))[:5]
 
 
 def run_import(kind, upload):
     """Load everything loadable, and report whatever could not be."""
     spec = KINDS[kind]
     result = ImportResult()
-    rows = read_rows(upload, kind)
+    rows, mapping = read_rows(upload, kind)
+    result.rows_read = len(rows)
+    result.mapping = mapping
+    _count_repeats(rows, spec, result)
     spec['handler'](rows, result)
 
     # Every row unusable, despite the headers being right, means the columns

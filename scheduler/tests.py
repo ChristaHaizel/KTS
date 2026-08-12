@@ -2459,6 +2459,65 @@ class StudentGroupFormTests(TestCase):
         self.assertEqual(group.courses.count(), len(codes))
 
 
+class RepeatedIdentifierTests(TestCase):
+    """Rows sharing an identifier overwrite each other, so a big file can
+    produce a small table. That has to be said out loud."""
+
+    def test_repeats_are_counted(self):
+        rows = '\n'.join(f'205{i % 3:05d},Student {i}' for i in range(30))
+        result = run_import('students', csv_upload(f'student_id,name\n{rows}\n'))
+        self.assertEqual(result.rows_read, 30)
+        self.assertEqual(result.repeated, 27)
+        self.assertEqual(result.records, 3)
+        self.assertEqual(Student.objects.count(), 3)
+
+    def test_records_matches_what_lands_in_the_table(self):
+        rows = '\n'.join(f'205{i % 28:05d},Student {i}' for i in range(651))
+        result = run_import('students', csv_upload(f'student_id,name\n{rows}\n'))
+        self.assertEqual(result.records, Student.objects.count())
+        self.assertEqual(result.records, 28)
+
+    def test_a_clean_file_reports_no_repeats(self):
+        rows = '\n'.join(f'205{i:05d},Student {i}' for i in range(20))
+        result = run_import('students', csv_upload(f'student_id,name\n{rows}\n'))
+        self.assertEqual(result.repeated, 0)
+        self.assertEqual(result.records, 20)
+
+    def test_the_identifying_column_is_reported_by_its_own_header(self):
+        """So the operator can tell which column was treated as the identifier."""
+        result = run_import('students', csv_upload(
+            'Student Number,Full Name\n20500001,Ama\n'))
+        self.assertEqual(result.identifier_column, 'Student Number')
+
+    def test_examples_of_the_repeated_values_are_given(self):
+        result = run_import('students', csv_upload(
+            'student_id,name\n20500001,A\n20500001,B\n20500002,C\n20500002,D\n'))
+        self.assertEqual(sorted(result.repeated_examples), ['20500001', '20500002'])
+
+    def test_the_warning_reaches_the_page(self):
+        self.client.force_login(make_admin('dupeadmin'))
+        rows = '\n'.join(f'205{i % 4:05d},Student {i}' for i in range(20))
+        response = self.client.post('/import/', {
+            'kind': 'students',
+            'file': csv_upload(f'student_id,name\n{rows}\n'),
+        })
+        body = response.content.decode()
+        self.assertIn('overwrote each other', body)
+        self.assertIn('20 rows became 4 record(s)', body)
+
+    def test_repeats_apply_to_every_kind(self):
+        cases = {
+            'lecturers': 'name,email\nA,same@x.gh\nB,same@x.gh\n',
+            'rooms': 'name,capacity\nPB 001,50\nPB 001,60\n',
+            'courses': 'code,name\nCS 151,A\nCS 151,B\n',
+        }
+        for kind, text in cases.items():
+            with self.subTest(kind=kind):
+                result = run_import(kind, csv_upload(text))
+                self.assertEqual(result.repeated, 1)
+                self.assertEqual(result.records, 1)
+
+
 class CsvImportViewTests(TestCase):
     def setUp(self):
         self.admin = make_admin('importer')

@@ -31,6 +31,7 @@ urlpatterns = [
     path('timeslots/add/', views.timeslot_edit, name='timeslot_add'),
     path('timeslots/<int:pk>/edit/', views.timeslot_edit, name='timeslot_edit'),
     path('timeslots/<int:pk>/delete/', views.timeslot_delete, name='timeslot_delete'),
+    path('<str:kind>/delete-all/', views.bulk_delete, name='bulk_delete'),
     path('import/', views.data_import, name='data_import'),
     path('import/template/<str:kind>/', views.data_import_template, name='data_import_template'),
     path('students/', views.student_list, name='students'),

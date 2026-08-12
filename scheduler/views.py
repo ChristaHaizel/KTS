@@ -203,6 +203,88 @@ def notifications_mark_read(request):
         messages.success(request, f'{updated} notification(s) marked as read.')
     return redirect('notifications')
 
+# Emptying a table takes rows in other tables with it. Each entry names what
+# else goes, and the counts are worked out live rather than described in prose,
+# so the confirmation says what will actually happen to this database.
+BULK_DELETE = {
+    'lecturers': {
+        'model': Lecturer, 'label': 'lecturers', 'redirect': 'lecturers',
+    },
+    'courses': {
+        'model': Course, 'label': 'courses', 'redirect': 'courses',
+    },
+    'rooms': {
+        'model': Room, 'label': 'rooms', 'redirect': 'rooms',
+    },
+    'student-groups': {
+        'model': StudentGroup, 'label': 'student groups', 'redirect': 'studentgroups',
+    },
+    'students': {
+        'model': Student, 'label': 'students', 'redirect': 'students',
+    },
+    'timeslots': {
+        'model': TimeSlot, 'label': 'time slots', 'redirect': 'timeslots',
+    },
+}
+
+
+def _bulk_delete_impact(kind):
+    """What else disappears, counted against the data actually present."""
+    entries = TimetableEntry.objects.count()
+    requests = RescheduleRequest.objects.count()
+    impact = []
+
+    if kind in ('courses', 'rooms', 'timeslots', 'student-groups') and entries:
+        impact.append(f'{entries} timetable entr(ies) - the whole timetable')
+    if kind == 'timeslots' and requests:
+        impact.append(f'{requests} reschedule request(s)')
+    if kind == 'lecturers':
+        affected = Course.objects.filter(lecturer__isnull=False).count()
+        if affected:
+            impact.append(f'{affected} course(s) will be left without a lecturer')
+    if kind == 'student-groups':
+        assigned = Student.objects.filter(group__isnull=False).count()
+        if assigned:
+            impact.append(f'{assigned} student(s) will be left without a group')
+    if kind == 'students':
+        accounts = Student.objects.filter(user__isnull=False).count()
+        if accounts:
+            impact.append(
+                f'{accounts} login account(s) will remain but stop being attached '
+                f'to a student, so they will show no timetable'
+            )
+    return impact
+
+
+@login_required
+@admin_required
+def bulk_delete(request, kind):
+    if kind not in BULK_DELETE:
+        raise Http404
+    spec = BULK_DELETE[kind]
+    total = spec['model'].objects.count()
+
+    if request.method == 'POST':
+        if not total:
+            messages.warning(request, f'There were no {spec["label"]} to delete.')
+            return redirect(spec['redirect'])
+        deleted, _ = spec['model'].objects.all().delete()
+        logger.warning(
+            '%s deleted all %s (%d records, %d rows in total)',
+            request.user.username, kind, total, deleted,
+        )
+        messages.success(request, f'Deleted all {total} {spec["label"]}.')
+        return redirect(spec['redirect'])
+
+    return render(request, 'scheduler/bulk_delete_confirm.html', {
+        'kind': kind,
+        'label': spec['label'],
+        'total': total,
+        'impact': _bulk_delete_impact(kind),
+        'back': spec['redirect'],
+    })
+
+
 @login_required
 @admin_required
 def data_import(request):

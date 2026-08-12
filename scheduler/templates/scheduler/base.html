@@ -719,6 +719,38 @@
             background: var(--kts-blue-tint);
         }
 
+        .btn-delete-all {
+            border-radius: var(--r-pill);
+            border: 1.5px solid var(--danger-line);
+            background: var(--surface);
+            color: var(--danger);
+            font-weight: 500;
+            font-size: 0.875rem;
+            padding: 10px 20px;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        .btn-delete-all:hover {
+            background: var(--danger-bg);
+            border-color: var(--danger);
+            color: var(--danger);
+        }
+        .impact-panel {
+            background: var(--danger-bg);
+            border-radius: var(--r-inset);
+            padding: var(--sp-4) 20px;
+            margin-bottom: var(--sp-5);
+        }
+        .impact-title {
+            font-size: 0.72rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--danger);
+            margin-bottom: var(--sp-2);
+        }
+        .impact-list { margin: 0; padding-left: 18px; }
+        .impact-list li { font-size: 0.85rem; color: var(--ink-body); margin-bottom: 4px; }
+
         /* CSV import */
         .import-kinds { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
         .import-kind {

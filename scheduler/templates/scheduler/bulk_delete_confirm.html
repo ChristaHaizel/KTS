@@ -1,0 +1,48 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Delete all {{ label }} - KTS{% endblock %}
+{% block page_title %}Delete all {{ label }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="kts-card">
+            <div class="kts-card-title danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                Delete all {{ total }} {{ label }}?
+            </div>
+
+            {% if total %}
+                <p class="card-lede">
+                    This removes every record, not the ones on this page. It cannot be
+                    undone, and there is no backup inside the app.
+                </p>
+
+                {% if impact %}
+                <div class="impact-panel">
+                    <div class="impact-title">It will also take with it</div>
+                    <ul class="impact-list">
+                        {% for line in impact %}
+                        <li>{{ line }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn-danger-kts">
+                            <i class="bi bi-trash me-1"></i> Yes, delete all {{ total }}
+                        </button>
+                        <a href="{% url back %}" class="btn btn-kts-outline">Cancel</a>
+                    </div>
+                </form>
+            {% else %}
+                <p class="card-lede">
+                    There are no {{ label }} to delete.
+                </p>
+                <a href="{% url back %}" class="btn btn-kts-outline">Back</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

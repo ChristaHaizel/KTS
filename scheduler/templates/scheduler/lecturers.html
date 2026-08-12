@@ -4,9 +4,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div class="record-count">{{ total_count }} lecturer(s) on record</div>
-    <a href="{% url 'lecturer_add' %}" class="btn btn-kts-primary">
-        <i class="bi bi-plus-lg me-1"></i> Add Lecturer
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{% url 'bulk_delete' 'lecturers' %}" class="btn-delete-all">
+            <i class="bi bi-trash me-1"></i> Delete all
+        </a>
+        <a href="{% url 'lecturer_add' %}" class="btn btn-kts-primary">
+            <i class="bi bi-plus-lg me-1"></i> Add Lecturer
+        </a>
+    </div>
 </div>
 
 <div class="kts-card flush">

@@ -2105,6 +2105,115 @@ class CsvImportTests(TestCase):
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
 
 
+class BulkDeleteTests(TestCase):
+    KINDS = {
+        'lecturers': Lecturer,
+        'courses': Course,
+        'rooms': Room,
+        'student-groups': StudentGroup,
+        'students': Student,
+        'timeslots': TimeSlot,
+    }
+
+    def setUp(self):
+        build_dataset()
+        Student.objects.create(
+            student_id='20500001', name='Ama', group=StudentGroup.objects.first()
+        )
+        self.admin = make_admin('bulkadmin')
+        self.client.force_login(self.admin)
+
+    def test_get_only_confirms_and_deletes_nothing(self):
+        for kind, model in self.KINDS.items():
+            with self.subTest(kind=kind):
+                before = model.objects.count()
+                response = self.client.get(f'/{kind}/delete-all/')
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(model.objects.count(), before)
+
+    def test_post_empties_the_table(self):
+        for kind, model in self.KINDS.items():
+            with self.subTest(kind=kind):
+                self.client.post(f'/{kind}/delete-all/')
+                self.assertEqual(model.objects.count(), 0)
+
+    def test_the_confirmation_states_the_count(self):
+        response = self.client.get('/rooms/delete-all/')
+        self.assertContains(response, f'Delete all {Room.objects.count()}')
+
+    def test_the_confirmation_warns_about_the_timetable(self):
+        run_genetic_algorithm()
+        entries = TimetableEntry.objects.count()
+        self.assertGreater(entries, 0)
+        response = self.client.get('/rooms/delete-all/')
+        self.assertContains(response, 'the whole timetable')
+        self.assertContains(response, str(entries))
+
+    def test_deleting_rooms_takes_the_timetable_with_it(self):
+        run_genetic_algorithm()
+        self.assertGreater(TimetableEntry.objects.count(), 0)
+        self.client.post('/rooms/delete-all/')
+        self.assertEqual(TimetableEntry.objects.count(), 0)
+
+    def test_deleting_lecturers_leaves_the_courses(self):
+        """SET_NULL, so courses survive without a lecturer."""
+        before = Course.objects.count()
+        self.client.post('/lecturers/delete-all/')
+        self.assertEqual(Course.objects.count(), before)
+        self.assertEqual(Course.objects.filter(lecturer__isnull=False).count(), 0)
+
+    def test_deleting_groups_leaves_the_students(self):
+        self.client.post('/student-groups/delete-all/')
+        student = Student.objects.get(student_id='20500001')
+        self.assertIsNone(student.group)
+
+    def test_the_confirmation_warns_about_orphaned_accounts(self):
+        student = Student.objects.get(student_id='20500001')
+        create_student_account(student)
+        response = self.client.get('/students/delete-all/')
+        self.assertContains(response, 'login account')
+
+    def test_an_empty_table_says_so_rather_than_offering_the_button(self):
+        Room.objects.all().delete()
+        response = self.client.get('/rooms/delete-all/')
+        self.assertContains(response, 'no rooms to delete')
+        self.assertNotContains(response, 'Yes, delete all')
+
+    def test_an_unknown_kind_404s(self):
+        self.assertEqual(self.client.get('/nonsense/delete-all/').status_code, 404)
+
+    def test_a_lecturer_cannot_delete_everything(self):
+        self.client.force_login(make_lecturer_user('nothanks'))
+        before = Room.objects.count()
+        self.assertIn(self.client.get('/rooms/delete-all/').status_code, (302, 403))
+        self.assertIn(self.client.post('/rooms/delete-all/').status_code, (302, 403))
+        self.assertEqual(Room.objects.count(), before)
+
+    def test_a_student_cannot_delete_everything(self):
+        student = make_student(student_id='20500999')
+        self.client.force_login(student.user)
+        before = Course.objects.count()
+        self.assertIn(self.client.post('/courses/delete-all/').status_code, (302, 403))
+        self.assertEqual(Course.objects.count(), before)
+
+    def test_every_list_page_offers_the_button(self):
+        pages = {
+            '/lecturers/': 'lecturers', '/courses/': 'courses', '/rooms/': 'rooms',
+            '/student-groups/': 'student-groups', '/students/': 'students',
+            '/timeslots/': 'timeslots',
+        }
+        for url, kind in pages.items():
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn(f'/{kind}/delete-all/', body)
+
+    def test_the_import_page_does_not_offer_it(self):
+        # Asserted on the URL, not the class name: .btn-delete-all lives in the
+        # stylesheet that every page carries, and would match either way.
+        body = self.client.get('/import/').content.decode()
+        self.assertNotIn('/delete-all/', body)
+
+
 class SplitCohortTests(TestCase):
     """A cohort too large for any room is split across groups, and each half is
     timetabled separately. That is what a student group is for."""

@@ -4,8 +4,10 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from urllib.parse import quote
+
 from django.core.paginator import Paginator
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -40,6 +42,31 @@ PAGE_SIZE = 25
 def _paginate(request, queryset):
     """Fine at fifteen courses, necessary at five hundred."""
     return Paginator(queryset, PAGE_SIZE).get_page(request.GET.get('page'))
+
+
+def _list_context(request, queryset, fields, name):
+    """Everything a searchable, paginated list page needs.
+
+    The search runs before pagination, so page two is page two of the results
+    rather than of everything, and the term is carried into the page links -
+    without which paging away from page one silently drops the search.
+    """
+    term = (request.GET.get('q') or '').strip()
+    results = queryset
+    if term:
+        condition = Q()
+        for field in fields:
+            condition |= Q(**{f'{field}__icontains': term})
+        results = queryset.filter(condition).distinct()
+
+    return {
+        name: _paginate(request, results),
+        'total_count': queryset.count(),
+        'result_count': results.count() if term else None,
+        'search_term': term,
+        # Prefixed onto ?page=N in the pager, so it must end with its own &.
+        'page_qs': f'q={quote(term)}&' if term else '',
+    }
 
 @login_required
 def dashboard(request):
@@ -364,10 +391,11 @@ def data_import_template(request, kind):
 @admin_required
 def student_list(request):
     students = Student.objects.select_related('group', 'user').order_by('student_id')
-    return render(request, 'scheduler/students.html', {
-        'students': _paginate(request, students),
-        'total_count': students.count(),
-    })
+    return render(request, 'scheduler/students.html', _list_context(
+        request, students,
+        ['student_id', 'index_number', 'name', 'programme', 'level', 'group__name'],
+        'students',
+    ))
 
 @login_required
 @admin_required
@@ -613,10 +641,9 @@ def reject_reschedule(request, pk):
 @admin_required
 def lecturer_list(request):
     lecturers = Lecturer.objects.select_related('user').order_by('name')
-    return render(request, 'scheduler/lecturers.html', {
-        'lecturers': _paginate(request, lecturers),
-        'total_count': lecturers.count(),
-    })
+    return render(request, 'scheduler/lecturers.html', _list_context(
+        request, lecturers, ['name', 'email', 'user__username'], 'lecturers',
+    ))
 
 @login_required
 @admin_required
@@ -636,10 +663,10 @@ def lecturer_edit(request, pk=None):
 @admin_required
 def course_list(request):
     courses = Course.objects.select_related('lecturer').order_by('code')
-    return render(request, 'scheduler/courses.html', {
-        'courses': _paginate(request, courses),
-        'total_count': courses.count(),
-    })
+    return render(request, 'scheduler/courses.html', _list_context(
+        request, courses, ['code', 'name', 'lecturer__name', 'lecturer__email'],
+        'courses',
+    ))
 
 @login_required
 @admin_required
@@ -716,10 +743,9 @@ def course_delete(request, pk):
 @admin_required
 def room_list(request):
     rooms = Room.objects.all().order_by('name')
-    return render(request, 'scheduler/rooms.html', {
-        'rooms': _paginate(request, rooms),
-        'total_count': rooms.count(),
-    })
+    return render(request, 'scheduler/rooms.html', _list_context(
+        request, rooms, ['name'], 'rooms',
+    ))
 
 @login_required
 @admin_required
@@ -752,10 +778,9 @@ def studentgroup_list(request):
               .order_by('name')
               .prefetch_related('courses')
               .annotate(enrolled_count=Count('students')))
-    return render(request, 'scheduler/studentgroups.html', {
-        'groups': _paginate(request, groups),
-        'total_count': groups.count(),
-    })
+    return render(request, 'scheduler/studentgroups.html', _list_context(
+        request, groups, ['name', 'courses__code', 'courses__name'], 'groups',
+    ))
 
 @login_required
 @admin_required

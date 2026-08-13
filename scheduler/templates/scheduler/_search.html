@@ -1,0 +1,28 @@
+{% comment %}
+A GET form, so a search is a URL: shareable, bookmarkable, and surviving a
+refresh or the back button.
+{% endcomment %}
+<form method="get" class="search-bar" role="search">
+    <div class="search-field">
+        <i class="bi bi-search search-icon" aria-hidden="true"></i>
+        <input type="search" name="q" value="{{ search_term }}"
+               class="form-control search-input"
+               placeholder="{{ placeholder }}"
+               aria-label="{{ placeholder }}">
+    </div>
+    <button type="submit" class="btn btn-kts-primary">Search</button>
+    {% if search_term %}
+    <a href="{{ request.path }}" class="btn btn-kts-outline">Clear</a>
+    {% endif %}
+</form>
+
+{% if search_term %}
+<div class="search-summary">
+    {% if result_count %}
+        {{ result_count }} of {{ total_count }} match <strong>{{ search_term }}</strong>
+    {% else %}
+        Nothing matches <strong>{{ search_term }}</strong>.
+        <a href="{{ request.path }}">Show all {{ total_count }}</a>
+    {% endif %}
+</div>
+{% endif %}

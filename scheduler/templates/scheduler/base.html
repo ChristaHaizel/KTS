@@ -719,6 +719,33 @@
             background: var(--kts-blue-tint);
         }
 
+        /* Search */
+        .search-bar {
+            display: flex;
+            gap: var(--sp-2);
+            align-items: center;
+            margin-bottom: var(--sp-4);
+        }
+        .search-field { position: relative; flex: 1; max-width: 460px; }
+        .search-icon {
+            position: absolute;
+            left: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--ink-faint);
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+        .search-input { padding-left: 44px; }
+        /* The platform clear cross does not match anything else here. */
+        .search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+        .search-summary {
+            font-size: 0.85rem;
+            color: var(--ink-muted);
+            margin-bottom: var(--sp-4);
+        }
+        .search-summary a { color: var(--kts-blue); }
+
         .btn-delete-all {
             border-radius: var(--r-pill);
             border: 1.5px solid var(--danger-line);

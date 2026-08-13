@@ -2110,6 +2110,136 @@ class CsvImportTests(TestCase):
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
 
 
+class SearchTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_admin('searcher'))
+        self.mensah = Lecturer.objects.create(
+            name='Dr. Kwame Mensah', email='kmensah@knust.edu.gh')
+        self.boateng = Lecturer.objects.create(
+            name='Prof. Ama Boateng', email='aboateng@knust.edu.gh')
+        self.course = Course.objects.create(
+            code='CS 451', name='Distributed Systems',
+            expected_students=90, lecturer=self.mensah)
+        Course.objects.create(code='CS 453', name='Machine Learning',
+                              expected_students=90, lecturer=self.boateng)
+        Room.objects.create(name='PB 001 Lecture Hall', capacity=250)
+        Room.objects.create(name='CS Lab 1', capacity=60)
+        self.group = StudentGroup.objects.create(name='CS Level 400 Group 1')
+        self.group.courses.set([self.course])
+        StudentGroup.objects.create(name='CS Level 100 Group 1')
+        Student.objects.create(
+            student_id='20212007', index_number='7212007', name='Adjoa Mensimah',
+            programme='BSc Computer Science', level='400', group=self.group)
+        Student.objects.create(
+            student_id='20512001', index_number='7212001', name='Ama Serwaa',
+            programme='BSc Computer Science', level='100')
+
+    def _names(self, url, key):
+        return [str(o) for o in self.client.get(url).context[key]]
+
+    def test_each_page_searches_its_own_records(self):
+        cases = [
+            ('/lecturers/?q=mensah', 'lecturers', 1),
+            ('/courses/?q=machine', 'courses', 1),
+            ('/rooms/?q=lab', 'rooms', 1),
+            ('/student-groups/?q=level 400', 'groups', 1),
+            ('/students/?q=adjoa', 'students', 1),
+        ]
+        for url, key, expected in cases:
+            with self.subTest(url=url):
+                self.assertEqual(len(self._names(url, key)), expected)
+
+    def test_search_is_case_insensitive(self):
+        for term in ('mensah', 'MENSAH', 'MeNsAh'):
+            with self.subTest(term=term):
+                self.assertEqual(len(self._names(f'/lecturers/?q={term}', 'lecturers')), 1)
+
+    def test_search_matches_a_fragment(self):
+        self.assertEqual(len(self._names('/lecturers/?q=ensa', 'lecturers')), 1)
+
+    def test_lecturers_are_searchable_by_email(self):
+        self.assertEqual(
+            len(self._names('/lecturers/?q=aboateng', 'lecturers')), 1)
+
+    def test_courses_are_searchable_by_their_lecturer(self):
+        found = self._names('/courses/?q=Boateng', 'courses')
+        self.assertEqual(len(found), 1)
+        self.assertIn('CS 453', found[0])
+
+    def test_students_are_searchable_by_index_number(self):
+        found = self._names('/students/?q=7212007', 'students')
+        self.assertEqual(len(found), 1)
+        self.assertIn('Adjoa', found[0])
+
+    def test_students_are_searchable_by_group(self):
+        found = self._names('/students/?q=Group 1', 'students')
+        self.assertEqual(len(found), 1)
+        self.assertIn('Adjoa', found[0])
+
+    def test_groups_are_searchable_by_the_courses_they_take(self):
+        found = self._names('/student-groups/?q=CS 451', 'groups')
+        self.assertEqual(len(found), 1)
+
+    def test_an_empty_search_shows_everything(self):
+        self.assertEqual(len(self._names('/lecturers/?q=', 'lecturers')), 2)
+        self.assertEqual(len(self._names('/lecturers/', 'lecturers')), 2)
+
+    def test_whitespace_only_is_treated_as_empty(self):
+        response = self.client.get('/lecturers/?q=%20%20')
+        self.assertEqual(len(response.context['lecturers']), 2)
+        self.assertIsNone(response.context['result_count'])
+
+    def test_no_matches_says_so_and_offers_a_way_back(self):
+        response = self.client.get('/lecturers/?q=nobodyhere')
+        self.assertEqual(len(response.context['lecturers']), 0)
+        self.assertContains(response, 'Nothing matches')
+        self.assertContains(response, 'Show all 2')
+
+    def test_the_total_stays_the_full_count(self):
+        """The header still reports the collection, not the current filter."""
+        response = self.client.get('/lecturers/?q=mensah')
+        self.assertEqual(response.context['total_count'], 2)
+        self.assertEqual(response.context['result_count'], 1)
+
+    def test_the_term_is_kept_in_the_box(self):
+        response = self.client.get('/lecturers/?q=mensah')
+        self.assertContains(response, 'value="mensah"')
+
+    def test_a_group_matching_two_courses_appears_once(self):
+        """A join across a many-to-many would otherwise duplicate the row."""
+        second = Course.objects.create(code='CS 455', name='Computer Graphics',
+                                       expected_students=70)
+        self.group.courses.add(second)
+        found = self._names('/student-groups/?q=CS 4', 'groups')
+        self.assertEqual(len(found), 1)
+
+    def test_paging_keeps_the_search(self):
+        """Without the term in the page links, page two silently shows
+        everything."""
+        for i in range(60):
+            Lecturer.objects.create(name=f'Dr Findme {i}', email=f'f{i}@x.gh')
+        response = self.client.get('/lecturers/?q=findme')
+        self.assertEqual(response.context['lecturers'].paginator.count, 60)
+        self.assertIn('q=findme&amp;page=2', response.content.decode())
+
+        page_two = self.client.get('/lecturers/?q=findme&page=2')
+        self.assertEqual(page_two.context['lecturers'].paginator.count, 60)
+        for lecturer in page_two.context['lecturers']:
+            self.assertIn('Findme', lecturer.name)
+
+    def test_a_term_with_spaces_survives_the_page_link(self):
+        for i in range(60):
+            Lecturer.objects.create(name=f'Dr Ama Serwaa {i}', email=f'a{i}@x.gh')
+        response = self.client.get('/lecturers/?q=ama serwaa')
+        self.assertIn('q=ama%20serwaa&amp;page=2', response.content.decode())
+
+    def test_search_is_available_to_admins_only(self):
+        build_dataset()
+        self.client.force_login(make_lecturer_user('outsider'))
+        self.assertIn(
+            self.client.get('/lecturers/?q=mensah').status_code, (302, 403))
+
+
 class BulkDeleteTests(TestCase):
     KINDS = {
         'lecturers': Lecturer,

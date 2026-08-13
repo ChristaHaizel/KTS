@@ -4,13 +4,14 @@
         Showing {{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }}
     </div>
     <div class="pager-links">
+        {# page_qs carries the search term, or paging away from page one drops it. #}
         <a class="pager-link {% if not page.has_previous %}disabled{% endif %}"
-           href="{% if page.has_previous %}?page={{ page.previous_page_number }}{% else %}#{% endif %}"
+           href="{% if page.has_previous %}?{{ page_qs }}page={{ page.previous_page_number }}{% else %}#{% endif %}"
            {% if not page.has_previous %}aria-disabled="true" tabindex="-1"{% endif %}>
             Previous
         </a>
         <a class="pager-link {% if not page.has_next %}disabled{% endif %}"
-           href="{% if page.has_next %}?page={{ page.next_page_number }}{% else %}#{% endif %}"
+           href="{% if page.has_next %}?{{ page_qs }}page={{ page.next_page_number }}{% else %}#{% endif %}"
            {% if not page.has_next %}aria-disabled="true" tabindex="-1"{% endif %}>
             Next
         </a>

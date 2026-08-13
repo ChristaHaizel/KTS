@@ -1,5 +1,4 @@
 {% extends 'scheduler/base.html' %}
-{% load scheduler_tags %}
 {% block title %}Timetable - KTS{% endblock %}
 {% block page_title %}{% if student %}My Timetable{% else %}Timetable View{% endif %}{% endblock %}
 {% block content %}
@@ -52,19 +51,19 @@
         <table class="table table-bordered mb-0 timetable-table">
             <thead>
                 <tr>
-                    <th style="width:90px;">Time</th>
-                    {% for day in days %}
-                        <th>{{ day_names|get_item:day }}</th>
+                    <th class="day-heading">Day</th>
+                    {% for period in periods %}
+                        <th class="period-heading">
+                            {{ period.start|time:"H:i" }}
+                            <span class="period-heading-end">{{ period.end|time:"H:i" }}</span>
+                        </th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for row in grid %}
                 <tr>
-                    <td class="time-cell">
-                        {{ row.start|time:"H:i" }}<br>
-                        <span class="time-cell-end">{{ row.end|time:"H:i" }}</span>
-                    </td>
+                    <td class="day-cell">{{ row.day_name }}</td>
                     {% for cell in row.cells %}
                     <td>
                         {% for entry in cell %}
@@ -79,14 +78,15 @@
                     </td>
                     {% endfor %}
                 </tr>
-                {% empty %}
+                {% endfor %}
+                {% if not periods %}
                 <tr>
                     <td colspan="6" class="text-center py-5 text-muted">
                         <i class="bi bi-calendar-x empty-inline-icon"></i>
-                        No timetable entries yet. Use Generate to create one.
+                        No time slots yet, so there is no grid to draw. Add some, then Generate.
                     </td>
                 </tr>
-                {% endfor %}
+                {% endif %}
             </tbody>
         </table>
     </div>

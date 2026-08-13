@@ -436,15 +436,45 @@ class TimetableViewTests(TestCase):
         self.user = make_admin()
         self.client.force_login(self.user)
 
-    def test_grid_has_one_row_per_period(self):
-        """T2.3: 5 days x 4 periods must render 4 rows, not 20."""
+    def test_grid_has_one_row_per_day_and_one_column_per_period(self):
+        """Days down the side, times across the top. 5 days x 4 periods is 5
+        rows of 4, not one row per TimeSlot."""
         self.assertEqual(TimeSlot.objects.count(), len(DAYS) * len(PERIODS))
         response = self.client.get('/timetable/')
         self.assertEqual(response.status_code, 200)
         grid = response.context['grid']
-        self.assertEqual(len(grid), len(PERIODS))
+        self.assertEqual(len(grid), len(DAYS))
         for row in grid:
-            self.assertEqual(len(row['cells']), len(DAYS))
+            self.assertEqual(len(row['cells']), len(PERIODS))
+        self.assertEqual(len(response.context['periods']), len(PERIODS))
+
+    def test_the_rows_are_the_weekdays_in_order(self):
+        rows = self.client.get('/timetable/').context['grid']
+        self.assertEqual([r['day'] for r in rows], DAYS)
+        self.assertEqual(rows[0]['day_name'], 'Monday')
+
+    def test_the_columns_are_the_periods_in_time_order(self):
+        periods = self.client.get('/timetable/').context['periods']
+        starts = [p['start'] for p in periods]
+        self.assertEqual(starts, sorted(starts))
+
+    def test_an_entry_lands_in_the_cell_for_its_day_and_period(self):
+        run_genetic_algorithm()
+        response = self.client.get('/timetable/')
+        periods = response.context['periods']
+        for row in response.context['grid']:
+            for index, cell in enumerate(row['cells']):
+                for entry in cell:
+                    self.assertEqual(entry.timeslot.day, row['day'])
+                    self.assertEqual(entry.timeslot.start_time, periods[index]['start'])
+
+    def test_every_active_entry_appears_exactly_once(self):
+        run_genetic_algorithm()
+        grid = self.client.get('/timetable/').context['grid']
+        shown = [e.pk for row in grid for cell in row['cells'] for e in cell]
+        self.assertEqual(sorted(shown), sorted(
+            TimetableEntry.objects.filter(is_active=True).values_list('pk', flat=True)
+        ))
 
     def test_dashboard_renders_summary_once(self):
         """T2.4: the summary table was rendered twice."""

@@ -138,26 +138,32 @@ def timetable_view(request):
         if lecturer_filter:
             entries = entries.filter(course__lecturer__id=lecturer_filter)
 
-    # Rows are distinct periods (start/end times); days are the columns. A TimeSlot
-    # already carries its own day, so one row per TimeSlot would render a diagonal
-    # staircase where only one day column per row could ever be filled.
-    periods = (TimeSlot.objects
-               .values_list('start_time', 'end_time')
-               .distinct()
-               .order_by('start_time'))
+    # One row per day, one column per distinct period. A TimeSlot carries its
+    # own day, so a row per TimeSlot would render a diagonal staircase in which
+    # only one cell per row could ever be filled; grouping by period collapses
+    # that into a real grid.
+    periods = list(TimeSlot.objects
+                   .values_list('start_time', 'end_time')
+                   .distinct()
+                   .order_by('start_time'))
 
-    grid = {(start, end): {d: [] for d in days} for start, end in periods}
+    grid = {d: {p: [] for p in periods} for d in days}
     for entry in entries:
-        key = (entry.timeslot.start_time, entry.timeslot.end_time)
-        if key in grid:
-            grid[key][entry.timeslot.day].append(entry)
+        period = (entry.timeslot.start_time, entry.timeslot.end_time)
+        if entry.timeslot.day in grid and period in grid[entry.timeslot.day]:
+            grid[entry.timeslot.day][period].append(entry)
 
     context = {
         'days': days,
         'day_names': day_names,
+        'periods': [{'start': s, 'end': e} for s, e in periods],
         'grid': [
-            {'start': s, 'end': e, 'cells': [grid[(s, e)][d] for d in days]}
-            for s, e in periods
+            {
+                'day': day,
+                'day_name': day_names[day],
+                'cells': [grid[day][p] for p in periods],
+            }
+            for day in days
         ],
         # Students get no filter controls: the grid is already theirs, and the
         # dropdowns would list every group and every member of staff.

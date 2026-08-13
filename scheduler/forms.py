@@ -59,6 +59,56 @@ class StudentGroupForm(forms.ModelForm):
         }
 
 
+class MyEmailForm(forms.Form):
+    """The address a user keeps for themselves.
+
+    It has to land in two places: on the account, because that is where the
+    password reset looks, and on the lecturer or student record, because that
+    is what an administrator sees. Letting them drift apart means a reset going
+    somewhere the office cannot see.
+    """
+    email = forms.EmailField(
+        required=False,
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g. aserwaa@st.knust.edu.gh',
+        }),
+        help_text='Leave blank to remove it. Without one you cannot reset your '
+                  'own password.',
+    )
+
+    def __init__(self, *args, user=None, profile=None, **kwargs):
+        self.user = user
+        self.profile = profile
+        super().__init__(*args, **kwargs)
+
+    def clean_email(self):
+        email = (self.cleaned_data.get('email') or '').strip().lower()
+        if not email:
+            return ''
+        # A lecturer's address is unique, so refuse here with a readable message
+        # rather than letting the database raise on save.
+        from .models import Lecturer
+        clash = Lecturer.objects.filter(email__iexact=email)
+        if self.profile is not None:
+            clash = clash.exclude(pk=self.profile.pk)
+        if isinstance(self.profile, Lecturer) or clash.exists():
+            if clash.exists():
+                raise forms.ValidationError(
+                    'Another lecturer already uses that address.'
+                )
+        return email
+
+    def save(self):
+        email = self.cleaned_data['email']
+        self.user.email = email
+        self.user.save(update_fields=['email'])
+        if self.profile is not None and hasattr(self.profile, 'email'):
+            self.profile.email = email
+            self.profile.save(update_fields=['email'])
+        return email
+
+
 class StudentForm(forms.ModelForm):
     class Meta:
         model = Student

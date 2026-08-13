@@ -1,0 +1,125 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}My Account - KTS{% endblock %}
+{% block page_title %}My Account{% endblock %}
+{% block content %}
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="kts-card mb-4">
+            <div class="kts-card-title"><i class="bi bi-person-badge"></i> Who you are</div>
+            <table class="data-table">
+                <tbody>
+                    <tr>
+                        <td class="summary-row-label">Signed in as</td>
+                        <td class="cell-primary">{{ request.user.username }}</td>
+                    </tr>
+                    {% if profile %}
+                    <tr>
+                        <td class="summary-row-label">Name</td>
+                        <td>{{ profile.name }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if student_profile %}
+                    <tr>
+                        <td class="summary-row-label">Index number</td>
+                        <td>{{ student_profile.index_number|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <td class="summary-row-label">Programme and level</td>
+                        <td>{{ student_profile.programme_and_level|default:"—" }}</td>
+                    </tr>
+                    <tr>
+                        <td class="summary-row-label">Student group</td>
+                        <td>{{ student_profile.group.name|default:"Unassigned" }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr>
+                        <td class="summary-row-label">Role</td>
+                        <td>
+                            {% if is_admin %}Administrator
+                            {% elif lecturer_profile %}Lecturer
+                            {% elif is_student %}Student
+                            {% else %}No role assigned{% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-envelope"></i> Email address</div>
+            {% if not request.user.email %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                You have no email address on file, so you cannot reset your own
+                password if you forget it. Add one below.
+            </div>
+            {% endif %}
+            <p class="card-lede">
+                Used only to send you a password reset link. Nothing else is sent here.
+            </p>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label" for="id_email">Email address</label>
+                    {{ email_form.email }}
+                    <div class="form-hint small mt-1">{{ email_form.email.help_text }}</div>
+                    {% if email_form.email.errors %}
+                    <div class="text-danger small mt-1">{{ email_form.email.errors|join:", " }}</div>
+                    {% endif %}
+                </div>
+                <button type="submit" name="save_email" class="btn btn-kts-primary"
+                        {% if previewing %}disabled{% endif %}>
+                    <i class="bi bi-check-lg me-1"></i> Save email
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title"><i class="bi bi-shield-lock"></i> Change password</div>
+            <p class="card-lede">
+                You need your current password. If you have forgotten it, sign out and
+                use <a href="{% url 'password_reset' %}">Forgot your password</a> instead.
+            </p>
+
+            {% if password_form.errors %}
+            <div class="alert alert-danger">
+                {% for field in password_form %}
+                    {% for error in field.errors %}<div>{{ error }}</div>{% endfor %}
+                {% endfor %}
+                {% for error in password_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+            </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label" for="id_old_password">Current password</label>
+                    <input type="password" name="old_password" id="id_old_password"
+                           class="form-control" autocomplete="current-password" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="id_new_password1">New password</label>
+                    <input type="password" name="new_password1" id="id_new_password1"
+                           class="form-control" autocomplete="new-password" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="id_new_password2">Confirm new password</label>
+                    <input type="password" name="new_password2" id="id_new_password2"
+                           class="form-control" autocomplete="new-password" required>
+                </div>
+                <ul class="import-notes mb-4">
+                    <li>At least 8 characters, not entirely numbers</li>
+                    <li>Not a commonly used password, and not too like your own name</li>
+                </ul>
+                <button type="submit" name="save_password" class="btn btn-kts-primary"
+                        {% if previewing %}disabled{% endif %}>
+                    <i class="bi bi-check-lg me-1"></i> Change password
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

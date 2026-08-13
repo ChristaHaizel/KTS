@@ -836,6 +836,17 @@
             margin-bottom: var(--sp-3);
         }
 
+        /* Quiet nudge that something needs attention, with a title for the
+           reason - never colour alone. */
+        .nav-dot {
+            margin-left: auto;
+            width: 8px;
+            height: 8px;
+            border-radius: var(--r-circle);
+            background: var(--warn);
+            flex-shrink: 0;
+        }
+
         .nav-badge {
             margin-left: auto;
             min-width: 20px;
@@ -1054,6 +1065,10 @@
         <a href="{% url 'notifications' %}" class="nav-link {% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">
             <i class="bi bi-bell"></i> Notifications
             {% if unread_notifications %}<span class="nav-badge">{{ unread_notifications }}</span>{% endif %}
+        </a>
+        <a href="{% url 'my_account' %}" class="nav-link {% if request.resolver_match.url_name == 'my_account' %}active{% endif %}">
+            <i class="bi bi-person-gear"></i> My Account
+            {% if not request.user.email %}<span class="nav-dot" title="No email address on file"></span>{% endif %}
         </a>
         {% if is_admin %}
         <div class="nav-section-label">Data</div>

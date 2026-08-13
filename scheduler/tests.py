@@ -2259,6 +2259,154 @@ class PasswordResetTests(TestCase):
                 self.assertEqual(self.client.get(url).status_code, 200)
 
 
+class MyAccountTests(TestCase):
+    def setUp(self):
+        build_dataset()
+        self.student = Student.objects.create(
+            student_id='20512001', name='Ama Serwaa', group=StudentGroup.objects.first())
+        _user, self.password = create_student_account(self.student)
+        self.student.refresh_from_db()
+        self.user = self.student.user
+
+    def test_any_signed_in_user_can_reach_it(self):
+        for account in (self.user, make_admin('accadmin'),
+                        make_linked_lecturer('acclect')):
+            with self.subTest(account=account.username):
+                self.client.force_login(account)
+                self.assertEqual(self.client.get('/account/').status_code, 200)
+
+    def test_it_needs_signing_in(self):
+        response = self.client.get('/account/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response['Location'])
+
+    def test_setting_an_email_lands_on_both_the_account_and_the_record(self):
+        """A reset reads the account; the office reads the record. They must
+        not drift apart."""
+        self.client.force_login(self.user)
+        self.client.post('/account/', {
+            'save_email': '1', 'email': 'Ama.Serwaa@st.knust.edu.gh'})
+        self.user.refresh_from_db()
+        self.student.refresh_from_db()
+        self.assertEqual(self.user.email, 'ama.serwaa@st.knust.edu.gh')
+        self.assertEqual(self.student.email, 'ama.serwaa@st.knust.edu.gh')
+
+    def test_a_student_can_then_reset_their_own_password(self):
+        """The whole point: an account with no address can now get one."""
+        self.assertEqual(self.user.email, '')
+        self.client.force_login(self.user)
+        self.client.post('/account/', {
+            'save_email': '1', 'email': 'ama@st.knust.edu.gh'})
+        self.client.logout()
+
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_the_page_says_when_there_is_no_address(self):
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get('/account/'), 'no email address on file')
+
+    def test_an_invalid_address_is_refused(self):
+        self.client.force_login(self.user)
+        self.client.post('/account/', {'save_email': '1', 'email': 'not-an-email'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, '')
+
+    def test_an_address_can_be_removed(self):
+        self.client.force_login(self.user)
+        self.client.post('/account/', {'save_email': '1', 'email': 'a@x.gh'})
+        self.client.post('/account/', {'save_email': '1', 'email': ''})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, '')
+
+    def test_a_lecturer_cannot_take_another_lecturers_address(self):
+        Lecturer.objects.filter(email='l1@example.com').update(email='taken@knust.edu.gh')
+        mine = Lecturer.objects.get(email='l0@example.com')
+        user = make_lecturer_user('drmine')
+        mine.user = user
+        mine.save()
+
+        self.client.force_login(user)
+        response = self.client.post('/account/', {
+            'save_email': '1', 'email': 'taken@knust.edu.gh'})
+        self.assertContains(response, 'already uses that address')
+        mine.refresh_from_db()
+        self.assertEqual(mine.email, 'l0@example.com')
+
+    def test_changing_the_password_works_and_keeps_you_signed_in(self):
+        self.client.force_login(self.user)
+        response = self.client.post('/account/', {
+            'save_password': '1',
+            'old_password': self.password,
+            'new_password1': 'Timetable-2026-KNUST',
+            'new_password2': 'Timetable-2026-KNUST',
+        }, follow=True)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('Timetable-2026-KNUST'))
+        # Still signed in: the session hash was updated with the new password.
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get('/account/').status_code, 200)
+
+    def test_the_current_password_is_required(self):
+        self.client.force_login(self.user)
+        self.client.post('/account/', {
+            'save_password': '1',
+            'old_password': 'not-the-right-one',
+            'new_password1': 'Timetable-2026-KNUST',
+            'new_password2': 'Timetable-2026-KNUST',
+        })
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.check_password('Timetable-2026-KNUST'))
+
+    def test_a_weak_new_password_is_refused(self):
+        self.client.force_login(self.user)
+        self.client.post('/account/', {
+            'save_password': '1', 'old_password': self.password,
+            'new_password1': '12345678', 'new_password2': '12345678',
+        })
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.password))
+
+    # --- the preview guard ---------------------------------------------------
+
+    def test_a_preview_cannot_change_the_previewed_password(self):
+        """Otherwise View as becomes a way to take over an account."""
+        admin = make_admin('previewer')
+        self.client.force_login(admin)
+        self.client.post(f'/view-as/{self.user.pk}/')
+
+        self.client.post('/account/', {
+            'save_password': '1', 'old_password': self.password,
+            'new_password1': 'Taken-Over-2026', 'new_password2': 'Taken-Over-2026',
+        })
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.check_password('Taken-Over-2026'))
+        self.assertTrue(self.user.check_password(self.password))
+
+    def test_a_preview_cannot_change_the_previewed_email(self):
+        admin = make_admin('previewer2')
+        self.client.force_login(admin)
+        self.client.post(f'/view-as/{self.user.pk}/')
+
+        self.client.post('/account/', {'save_email': '1', 'email': 'attacker@x.gh'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, '')
+
+    def test_a_preview_can_still_look_at_the_page(self):
+        admin = make_admin('previewer3')
+        self.client.force_login(admin)
+        self.client.post(f'/view-as/{self.user.pk}/')
+        response = self.client.get('/account/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['previewing'])
+
+    def test_the_nav_offers_it_to_everyone(self):
+        for account in (self.user, make_admin('navadmin')):
+            with self.subTest(account=account.username):
+                self.client.force_login(account)
+                self.assertContains(self.client.get('/'), 'href="/account/"')
+
+
 class StudentEmailTests(TestCase):
     def test_an_account_takes_the_students_address(self):
         student = Student.objects.create(

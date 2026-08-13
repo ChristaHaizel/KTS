@@ -1,8 +1,9 @@
 import logging
 
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib import messages
 from urllib.parse import quote
 
@@ -30,7 +31,8 @@ from .genetic_algorithm import (
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
 )
 from .forms import (
-    LecturerForm, CourseForm, RoomForm, StudentForm, StudentGroupForm, TimeSlotForm,
+    LecturerForm, CourseForm, MyEmailForm, RoomForm, StudentForm, StudentGroupForm,
+    TimeSlotForm,
 )
 from .notifications import notify, notify_all_students, notify_group_of_change
 
@@ -215,6 +217,68 @@ def stop_view_as(request):
     if real_user:
         logger.info('%s stopped previewing', real_user.username)
     return redirect(request.POST.get('next') or 'dashboard')
+
+@login_required
+def my_account(request):
+    """Where someone maintains their own address and password.
+
+    Without this the only route to an email address is an administrator typing
+    it in, which leaves anyone missing one unable to reset their password and
+    unable to fix that themselves.
+    """
+    profile = student_for(request.user) or lecturer_for(request.user)
+
+    # Changing the password of an account you are merely previewing is not
+    # something a preview should ever be able to do.
+    previewing = request.impersonator is not None
+
+    email_form = MyEmailForm(
+        user=request.user, profile=profile,
+        initial={'email': request.user.email},
+    )
+    password_form = PasswordChangeForm(user=request.user)
+
+    if request.method == 'POST':
+        if previewing:
+            messages.error(
+                request,
+                'You are previewing as someone else. Return to your own account '
+                'before changing anything here.',
+            )
+            return redirect('my_account')
+
+        if 'save_email' in request.POST:
+            email_form = MyEmailForm(
+                request.POST, user=request.user, profile=profile,
+            )
+            if email_form.is_valid():
+                saved = email_form.save()
+                logger.info('%s changed their own email address', request.user.username)
+                messages.success(
+                    request,
+                    f'Email address set to {saved}.' if saved
+                    else 'Email address removed. You will not be able to reset '
+                         'your own password until you add one.',
+                )
+                return redirect('my_account')
+
+        elif 'save_password' in request.POST:
+            password_form = PasswordChangeForm(user=request.user, data=request.POST)
+            if password_form.is_valid():
+                password_form.save()
+                # Changing a password rotates the session hash, which would
+                # otherwise sign the user out of the tab they are sitting in.
+                update_session_auth_hash(request, password_form.user)
+                logger.info('%s changed their own password', request.user.username)
+                messages.success(request, 'Your password has been changed.')
+                return redirect('my_account')
+
+    return render(request, 'scheduler/account.html', {
+        'profile': profile,
+        'email_form': email_form,
+        'password_form': password_form,
+        'previewing': previewing,
+    })
 
 @login_required
 def notification_list(request):

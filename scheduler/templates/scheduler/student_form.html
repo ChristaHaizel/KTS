@@ -30,6 +30,12 @@
                     {{ form.name }}
                     {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
                 </div>
+                <div class="mb-3">
+                    <label class="form-label">Email <span class="text-faint">(optional)</span></label>
+                    {{ form.email }}
+                    <div class="form-hint small mt-1">{{ form.email.help_text }}</div>
+                    {% if form.email.errors %}<div class="text-danger small mt-1">{{ form.email.errors|join:", " }}</div>{% endif %}
+                </div>
                 <div class="row g-3 mb-3">
                     <div class="col-md-8">
                         <label class="form-label">Programme</label>

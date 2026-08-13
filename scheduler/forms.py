@@ -62,11 +62,12 @@ class StudentGroupForm(forms.ModelForm):
 class StudentForm(forms.ModelForm):
     class Meta:
         model = Student
-        fields = ['student_id', 'index_number', 'name', 'programme', 'level', 'group']
+        fields = ['student_id', 'index_number', 'name', 'email', 'programme', 'level', 'group']
         widgets = {
             'student_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 20512345'}),
             'index_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 7212345'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Ama Serwaa'}),
+            'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'e.g. aserwaa@st.knust.edu.gh'}),
             'programme': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. BSc Computer Science'}),
             'level': forms.Select(attrs={'class': 'form-select'}),
             'group': forms.Select(attrs={'class': 'form-select'}),
@@ -79,6 +80,7 @@ class StudentForm(forms.ModelForm):
         help_texts = {
             'student_id': 'This is what they sign in with.',
             'index_number': 'Optional. Leave blank if they only have one number.',
+            'email': 'Needed only so they can reset their own password.',
             'group': 'The teaching group whose timetable is theirs.',
         }
 

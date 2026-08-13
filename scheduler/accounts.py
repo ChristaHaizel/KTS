@@ -37,8 +37,10 @@ def create_student_account(student):
 
     User = get_user_model()
     password = generate_password()
+    # The address is copied onto the account because that is where Django's
+    # password reset looks; a student without one simply cannot self-serve.
     user = User.objects.create_user(
-        username=student.student_id, password=password
+        username=student.student_id, password=password, email=student.email or '',
     )
     student.user = user
     student.save(update_fields=['user'])

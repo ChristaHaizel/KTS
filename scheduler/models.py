@@ -127,6 +127,12 @@ class Student(models.Model):
         help_text='Their examination index number, if different from the student ID.',
     )
     name = models.CharField(max_length=100)
+    # Optional, but a student without one cannot reset their own password:
+    # a reset link has nowhere to go.
+    email = models.EmailField(
+        blank=True,
+        help_text='Used only to send a password reset link.',
+    )
     programme = models.CharField(
         max_length=120, blank=True,
         help_text='For example, BSc Computer Science.',

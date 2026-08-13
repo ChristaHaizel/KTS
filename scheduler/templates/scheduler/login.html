@@ -1,66 +1,10 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In - KTS</title>
-    {# Self-hosted so the app renders correctly with no internet connection. #}
-    <link href="{% static 'scheduler/vendor/bootstrap.min.css' %}" rel="stylesheet">
-    <link href="{% static 'scheduler/vendor/bootstrap-icons.css' %}" rel="stylesheet">
-    <link href="{% static 'scheduler/vendor/inter.css' %}" rel="stylesheet">
-    <style>
-        :root {
-            --kts-blue:        #05409E;
-            --kts-blue-dark:   #032c6b;
-            --kts-blue-tint:   #eff6ff;
-
-            --ink-muted:       #64748b;
-            --ink-faint:       #94a3b8;
-
-            --surface:         #ffffff;
-            --line-strong:     #e2e8f0;
-
-            --danger:          #dc2626;  --danger-bg: #fef2f2;
-
-            --r-pill:          999px;
-            --r-card:          28px;
-            --r-circle:        50%;
-
-            --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-6: 32px;
-        }
-
-        /* Declared after the Bootstrap link so the framework cannot reintroduce shadows. */
-        *, *::before, *::after {
-            box-shadow: none !important;
-            text-shadow: none !important;
-        }
-
-        * { font-family: 'Inter', sans-serif; }
-
-        /* Match the rest of the app rather than the operating system. */
-        * {
-            scrollbar-width: thin;
-            scrollbar-color: var(--line-strong) transparent;
-        }
-        *::-webkit-scrollbar { width: 10px; height: 10px; }
-        *::-webkit-scrollbar-track { background: transparent; }
-        *::-webkit-scrollbar-thumb {
-            background: var(--line-strong);
-            border-radius: var(--r-pill);
-            border: 3px solid transparent;
-            background-clip: padding-box;
-        }
-
-        body {
-            background: var(--kts-blue);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+{% extends 'scheduler/auth_base.html' %}
+{% block title %}Sign In - KTS{% endblock %}
+{% block extra_css %}
         .login-wrap {
             display: flex;
             width: 860px;
+            max-width: 100%;
             min-height: 480px;
             border-radius: var(--r-card);
             overflow: hidden;
@@ -105,20 +49,6 @@
         }
         .login-right h4 { font-weight: 700; color: var(--kts-blue); margin-bottom: 6px; }
         .login-right .sub { color: var(--ink-faint); font-size: 0.875rem; margin-bottom: 28px; }
-        .form-control {
-            border-radius: var(--r-pill);
-            border: 1.5px solid var(--line-strong);
-            padding: 10px 14px;
-            font-size: 0.875rem;
-            transition: border-color 0.2s;
-        }
-        .form-control:focus,
-        button:focus-visible {
-            border-color: var(--kts-blue);
-            outline: 2px solid var(--kts-blue);
-            outline-offset: 2px;
-        }
-        .form-label { font-weight: 500; font-size: 0.85rem; color: var(--ink-label); margin-bottom: 6px; }
         .password-field { position: relative; }
         /* Leave room for the toggle so a long password never runs under it. */
         .password-field .form-control { padding-right: 46px; }
@@ -140,29 +70,22 @@
             transition: color 0.2s, background-color 0.2s;
         }
         .password-toggle:hover { color: var(--kts-blue); background: var(--kts-blue-tint); }
-        .btn-login {
-            background: var(--kts-blue);
-            border: none;
-            color: var(--on-brand);
-            border-radius: var(--r-pill);
-            padding: var(--sp-3);
-            font-weight: 600;
-            font-size: 0.9rem;
-            width: 100%;
-            transition: background-color 0.2s;
+        .forgot-link {
+            display: block;
+            text-align: right;
+            font-size: 0.8rem;
+            color: var(--kts-blue);
+            text-decoration: none;
+            margin-top: var(--sp-2);
         }
-        .btn-login:hover { background: var(--kts-blue-dark); }
-        .login-alert {
-            border-radius: var(--r-card);
-            font-size: 0.85rem;
-            background: var(--danger-bg);
-            color: var(--danger);
-            border: none;
-            margin-bottom: 20px;
+        .forgot-link:hover { text-decoration: underline; }
+        @media (max-width: 720px) {
+            .login-wrap { flex-direction: column; }
+            .login-left { display: none; }
+            .login-right { width: 100%; }
         }
-    </style>
-</head>
-<body>
+{% endblock %}
+{% block body %}
 <div class="login-wrap">
     <div class="login-left">
         <div class="brand">KTS</div>
@@ -195,8 +118,9 @@
         <form method="post">
             {% csrf_token %}
             <div class="mb-3">
-                <label class="form-label">Username</label>
-                <input type="text" name="username" class="form-control" autofocus placeholder="Enter your username">
+                <label class="form-label" for="id_username">Username</label>
+                <input type="text" name="username" id="id_username" class="form-control"
+                       autofocus placeholder="Username or student ID">
             </div>
             <div class="mb-4">
                 <label class="form-label" for="id_password">Password</label>
@@ -207,6 +131,7 @@
                         <i class="bi bi-eye" id="password-toggle-icon" aria-hidden="true"></i>
                     </button>
                 </div>
+                <a href="{% url 'password_reset' %}" class="forgot-link">Forgot your password?</a>
             </div>
             <button type="submit" class="btn-login">Sign In</button>
         </form>
@@ -228,5 +153,4 @@
         });
     })();
 </script>
-</body>
-</html>
+{% endblock %}

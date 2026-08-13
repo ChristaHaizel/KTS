@@ -3,6 +3,7 @@ import re
 from datetime import time
 
 from django.contrib.auth.models import Group, User
+from django.core import mail
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
@@ -2138,6 +2139,154 @@ class CsvImportTests(TestCase):
                 result = run_import(kind, csv_upload(template_csv(kind)))
                 self.assertFalse(result.skipped, f'{kind}: {result.skipped}')
                 self.assertEqual(result.total, len(KINDS[kind]['sample']))
+
+
+class PasswordResetTests(TestCase):
+    """Django's own flow, so these check the wiring and the wording rather than
+    re-testing its token machinery."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='20512001', email='ama@st.knust.edu.gh', password='old-password-1',
+        )
+
+    def _link_from_email(self):
+        body = mail.outbox[0].body
+        match = re.search(r'https?://\S+/password-reset/[^/\s]+/[^/\s]+/', body)
+        self.assertIsNotNone(match, f'no reset link in the email:\n{body}')
+        return match.group(0)
+
+    def test_the_login_page_offers_the_link(self):
+        response = self.client.get('/login/')
+        self.assertContains(response, 'Forgot your password?')
+        self.assertContains(response, '/password-reset/')
+
+    def test_the_request_page_renders(self):
+        self.assertEqual(self.client.get('/password-reset/').status_code, 200)
+
+    def test_a_known_address_is_sent_a_link(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('20512001', mail.outbox[0].body)
+        self.assertEqual(mail.outbox[0].to, ['ama@st.knust.edu.gh'])
+
+    def test_an_unknown_address_is_answered_the_same_way(self):
+        """Otherwise the form tells a stranger which addresses have accounts."""
+        known = self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        mail.outbox.clear()
+        unknown = self.client.post('/password-reset/', {'email': 'nobody@st.knust.edu.gh'})
+        self.assertEqual(known.status_code, unknown.status_code)
+        self.assertEqual(known['Location'], unknown['Location'])
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_the_sent_page_does_not_confirm_the_address_exists(self):
+        response = self.client.get('/password-reset/sent/')
+        self.assertContains(response, 'If an account exists')
+
+    def test_the_link_lets_a_new_password_be_set(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+
+        # Django swaps the token for a session-held one and redirects.
+        response = self.client.get(link, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Set a new password')
+
+        self.client.post(response.redirect_chain[-1][0], {
+            'new_password1': 'a-brand-new-password-9',
+            'new_password2': 'a-brand-new-password-9',
+        })
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('a-brand-new-password-9'))
+
+    def test_the_old_password_stops_working(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+        response = self.client.get(link, follow=True)
+        self.client.post(response.redirect_chain[-1][0], {
+            'new_password1': 'a-brand-new-password-9',
+            'new_password2': 'a-brand-new-password-9',
+        })
+        self.assertFalse(self.client.login(username='20512001', password='old-password-1'))
+        self.assertTrue(self.client.login(username='20512001', password='a-brand-new-password-9'))
+
+    def test_a_link_cannot_be_used_twice(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+        response = self.client.get(link, follow=True)
+        self.client.post(response.redirect_chain[-1][0], {
+            'new_password1': 'a-brand-new-password-9',
+            'new_password2': 'a-brand-new-password-9',
+        })
+        second = self.client.get(link, follow=True)
+        self.assertContains(second, 'no longer works')
+
+    def test_a_tampered_link_is_refused(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+        response = self.client.get(link[:-4] + 'aaa/', follow=True)
+        self.assertContains(response, 'no longer works')
+
+    def test_a_weak_password_is_refused(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+        response = self.client.get(link, follow=True)
+        target = response.redirect_chain[-1][0]
+        self.client.post(target, {'new_password1': '123', 'new_password2': '123'})
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('old-password-1'))
+
+    def test_mismatched_confirmation_is_refused(self):
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = self._link_from_email()
+        response = self.client.get(link, follow=True)
+        self.client.post(response.redirect_chain[-1][0], {
+            'new_password1': 'a-brand-new-password-9',
+            'new_password2': 'a-different-password-9',
+        })
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('old-password-1'))
+
+    def test_an_account_with_no_address_gets_nothing(self):
+        """Which is why students need an email on their record."""
+        User.objects.create_user(username='20512002', password='x')
+        self.client.post('/password-reset/', {'email': ''})
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_the_whole_flow_needs_no_sign_in(self):
+        for url in ['/password-reset/', '/password-reset/sent/', '/password-reset/done/']:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+
+class StudentEmailTests(TestCase):
+    def test_an_account_takes_the_students_address(self):
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', email='ama@st.knust.edu.gh')
+        user, _password = create_student_account(student)
+        self.assertEqual(user.email, 'ama@st.knust.edu.gh')
+
+    def test_a_student_can_reset_after_their_account_is_made(self):
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', email='ama@st.knust.edu.gh')
+        create_student_account(student)
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_an_account_without_an_address_is_still_created(self):
+        student = Student.objects.create(student_id='20512002', name='Kojo')
+        user, _password = create_student_account(student)
+        self.assertEqual(user.email, '')
+
+    def test_the_importer_reads_an_email_column(self):
+        result = run_import('students', csv_upload(
+            'student_id,name,email\n20512001,Ama,ama@st.knust.edu.gh\n'))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Student.objects.get().email, 'ama@st.knust.edu.gh')
+
+    def test_a_students_file_with_emails_is_not_taken_for_lecturers(self):
+        with self.assertRaises(CsvImportError):
+            run_import('lecturers', csv_upload(template_csv('students')))
 
 
 class SearchTests(TestCase):

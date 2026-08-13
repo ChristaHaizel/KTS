@@ -1,0 +1,144 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}KTS{% endblock %}</title>
+    {# Self-hosted so the app renders correctly with no internet connection. #}
+    <link href="{% static 'scheduler/vendor/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'scheduler/vendor/bootstrap-icons.css' %}" rel="stylesheet">
+    <link href="{% static 'scheduler/vendor/inter.css' %}" rel="stylesheet">
+    <style>
+        {% comment %}
+        The signed-out pages carry their own copy of the tokens because they do
+        not extend the application shell - there is no sidebar to hang them off.
+        {% endcomment %}
+        :root {
+            --kts-blue:        #05409E;
+            --kts-blue-dark:   #032c6b;
+            --kts-blue-tint:   #eff6ff;
+
+            --ink:             #1e293b;
+            --ink-muted:       #64748b;
+            --ink-faint:       #94a3b8;
+            --ink-label:       #374151;
+            --on-brand:        #ffffff;
+
+            --surface:         #ffffff;
+            --line-strong:     #e2e8f0;
+
+            --danger:          #dc2626;  --danger-bg: #fef2f2;
+            --success:         #16a34a;  --success-bg: #f0fdf4;
+
+            --r-pill:          999px;
+            --r-card:          28px;
+            --r-circle:        50%;
+
+            --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-5: 24px;  --sp-6: 32px;
+        }
+
+        /* Declared after the Bootstrap link so the framework cannot reintroduce shadows. */
+        *, *::before, *::after {
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        * { font-family: 'Inter', sans-serif; }
+
+        /* Match the rest of the app rather than the operating system. */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--line-strong) transparent;
+        }
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb {
+            background: var(--line-strong);
+            border-radius: var(--r-pill);
+            border: 3px solid transparent;
+            background-clip: padding-box;
+        }
+
+        body {
+            background: var(--kts-blue);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: var(--sp-4);
+        }
+
+        .form-control {
+            border-radius: var(--r-pill);
+            border: 1.5px solid var(--line-strong);
+            padding: 10px 14px;
+            font-size: 0.875rem;
+            transition: border-color 0.2s;
+        }
+        .form-control:focus,
+        button:focus-visible,
+        a:focus-visible {
+            border-color: var(--kts-blue);
+            outline: 2px solid var(--kts-blue);
+            outline-offset: 2px;
+        }
+        .form-label { font-weight: 500; font-size: 0.85rem; color: var(--ink-label); margin-bottom: 6px; }
+        .form-hint { color: var(--ink-faint); font-size: 0.8rem; }
+
+        .btn-login {
+            background: var(--kts-blue);
+            border: none;
+            color: var(--on-brand);
+            border-radius: var(--r-pill);
+            padding: var(--sp-3);
+            font-weight: 600;
+            font-size: 0.9rem;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+        .btn-login:hover { background: var(--kts-blue-dark); }
+
+        .login-alert {
+            border-radius: var(--r-card);
+            font-size: 0.85rem;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: none;
+            margin-bottom: 20px;
+            padding: var(--sp-3) var(--sp-4);
+        }
+
+        /* A single centred card, for everything that is not the sign-in split. */
+        .auth-card {
+            width: 100%;
+            max-width: 460px;
+            background: var(--surface);
+            border-radius: var(--r-card);
+            padding: 44px 40px;
+        }
+        .auth-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: var(--r-circle);
+            background: var(--kts-blue-tint);
+            color: var(--kts-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: var(--sp-4);
+        }
+        .auth-icon.good { background: var(--success-bg); color: var(--success); }
+        .auth-icon.bad { background: var(--danger-bg); color: var(--danger); }
+        .auth-card h4 { font-weight: 700; color: var(--kts-blue); margin-bottom: 6px; }
+        .auth-lede { color: var(--ink-muted); font-size: 0.875rem; margin-bottom: 28px; }
+        .auth-footer { margin-top: var(--sp-5); font-size: 0.85rem; color: var(--ink-faint); }
+        .auth-footer a { color: var(--kts-blue); text-decoration: none; font-weight: 500; }
+        .auth-footer a:hover { text-decoration: underline; }
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+{% block body %}{% endblock %}
+</body>
+</html>

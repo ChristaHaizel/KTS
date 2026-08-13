@@ -352,6 +352,7 @@ def _import_students(rows, result):
             'line': line,
             'student_id': student_id,
             'name': _clean(row.get('name')) or student_id,
+            'email': _clean(row.get('email')).lower(),
             'programme': _clean(row.get('programme')),
             'level': _normalise_level(row.get('level')),
             'group_name': _clean(row.get('group')),
@@ -412,12 +413,13 @@ def _import_students(rows, result):
         found = existing.get(key)
         if found is None:
             to_create.append(Student(
-                student_id=r['student_id'], name=r['name'],
+                student_id=r['student_id'], name=r['name'], email=r['email'],
                 programme=r['programme'], level=r['level'],
                 group=group, index_number=index_value,
             ))
         else:
             found.name = r['name']
+            found.email = r['email']
             found.programme = r['programme']
             found.level = r['level']
             found.group = group
@@ -429,7 +431,7 @@ def _import_students(rows, result):
             to_update.append(found)
 
     _apply(Student, to_create, to_update,
-           ['name', 'programme', 'level', 'group', 'index_number'], result)
+           ['name', 'email', 'programme', 'level', 'group', 'index_number'], result)
 
 
 def _import_timeslots(rows, result):
@@ -524,18 +526,23 @@ KINDS = {
     },
     'students': {
         'label': 'Students',
-        'columns': ['student_id', 'index_number', 'name', 'programme', 'level', 'group'],
+        'columns': ['student_id', 'index_number', 'name', 'email', 'programme',
+                    'level', 'group'],
         'identifies': ['student_id'],
         'key': ('student_id',),
         'handler': _import_students,
         'sample': [
-            ['20512001', '7212001', 'Ama Serwaa', 'BSc Computer Science', '100', 'CS Level 100'],
-            ['20412003', '7212003', 'Abena Frimpong', 'BSc Computer Science', '200', 'CS Level 200'],
+            ['20512001', '7212001', 'Ama Serwaa', 'aserwaa@st.knust.edu.gh',
+             'BSc Computer Science', '100', 'CS Level 100'],
+            ['20412003', '7212003', 'Abena Frimpong', 'afrimpong@st.knust.edu.gh',
+             'BSc Computer Science', '200', 'CS Level 200'],
         ],
         'note': (
             'Matched on student_id, which is also what they sign in with. Only '
             'that column is required; a group that does not exist yet is created '
-            'for you, and level accepts "400" or "Level 400".'
+            'for you, and level accepts "400" or "Level 400". The email is only '
+            'used for password resets, and a student without one cannot reset '
+            'their own.'
         ),
     },
     'timeslots': {

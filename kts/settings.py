@@ -179,6 +179,30 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
 
+# Outbound mail, for password resets. Everything comes from the environment so
+# no credential is committed.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', 'KNUST Timetable System <no-reply@example.com>'
+)
+
+if EMAIL_HOST:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    # Django's default points at an SMTP server on localhost, which does not
+    # exist on a hosted box: every send would raise and the reset page would
+    # break rather than degrade. Writing the message to the log instead keeps
+    # the flow usable - locally while developing, and on a deploy where the
+    # provider is not set up yet, where the link can be read out of the logs.
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', 60 * 60 * 24))
+
+
 # Logging. Without this, an exception in production is a 500 page for the user and
 # silence for everyone else. Hosts capture stdout, so a console handler is enough.
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')

@@ -2407,6 +2407,54 @@ class MyAccountTests(TestCase):
                 self.assertContains(self.client.get('/'), 'href="/account/"')
 
 
+class PasswordToggleTests(TestCase):
+    """Every password input gets a reveal control, wired by one shared script."""
+
+    def setUp(self):
+        self.student = Student.objects.create(student_id='20512001', name='Ama')
+        create_student_account(self.student)
+        self.student.refresh_from_db()
+
+    def _reset_confirm_url(self):
+        self.student.user.email = 'ama@st.knust.edu.gh'
+        self.student.user.save()
+        self.client.post('/password-reset/', {'email': 'ama@st.knust.edu.gh'})
+        link = re.search(
+            r'https?://[^/]+(/password-reset/[^/\s]+/[^/\s]+/)', mail.outbox[0].body
+        ).group(1)
+        return self.client.get(link, follow=True).redirect_chain[-1][0]
+
+    def _check(self, body, expected):
+        """Each password input must be wrapped and have a toggle beside it."""
+        self.assertEqual(body.count('type="password"'), expected)
+        self.assertEqual(body.count('class="password-field"'), expected)
+        self.assertEqual(body.count('class="password-toggle"'), expected)
+        self.assertIn('password-toggle.js', body)
+
+    def test_sign_in_has_one(self):
+        self._check(self.client.get('/login/').content.decode(), 1)
+
+    def test_my_account_has_one_on_each_of_its_three(self):
+        self.client.force_login(self.student.user)
+        self._check(self.client.get('/account/').content.decode(), 3)
+
+    def test_setting_a_new_password_has_one_on_both(self):
+        self._check(self.client.get(self._reset_confirm_url()).content.decode(), 2)
+
+    def test_the_shared_script_is_served(self):
+        response = self.client.get('/static/scheduler/password-toggle.js')
+        self.assertIn(response.status_code, (200, 301, 302))
+
+    def test_no_page_ships_its_own_copy_of_the_toggle_script(self):
+        """It lived inline in two templates before; a third copy was the prompt
+        to factor it out."""
+        self.client.force_login(self.student.user)
+        for url in ['/login/', '/account/']:
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertNotIn("input.type = wasRevealed", body)
+
+
 class StudentEmailTests(TestCase):
     def test_an_account_takes_the_students_address(self):
         student = Student.objects.create(

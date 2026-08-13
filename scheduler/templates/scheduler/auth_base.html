@@ -85,6 +85,29 @@
         .form-label { font-weight: 500; font-size: 0.85rem; color: var(--ink-label); margin-bottom: 6px; }
         .form-hint { color: var(--ink-faint); font-size: 0.8rem; }
 
+        /* Reveal control on any password input. */
+        .password-field { position: relative; }
+        /* Leave room for the toggle so a long password never runs under it. */
+        .password-field .form-control { padding-right: 46px; }
+        .password-toggle {
+            position: absolute;
+            top: 50%;
+            right: 7px;
+            transform: translateY(-50%);
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--ink-faint);
+            border-radius: var(--r-circle);
+            cursor: pointer;
+            transition: color 0.2s, background-color 0.2s;
+        }
+        .password-toggle:hover { color: var(--kts-blue); background: var(--kts-blue-tint); }
+
         .btn-login {
             background: var(--kts-blue);
             border: none;
@@ -140,5 +163,6 @@
 </head>
 <body>
 {% block body %}{% endblock %}
+<script src="{% static 'scheduler/password-toggle.js' %}"></script>
 </body>
 </html>

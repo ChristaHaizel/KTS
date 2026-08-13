@@ -165,12 +165,24 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# The manifest backend serves hashed filenames and refuses to render a page
+# referencing a file it has no entry for. That is what you want in production,
+# where collectstatic runs during the build. In development it means a fresh
+# clone raises on every page until collectstatic has been run once, and adding
+# a static file breaks the site until it is run again - so development uses the
+# plain backend and reads the files where they lie.
+STATICFILES_BACKEND = (
+    'django.contrib.staticfiles.storage.StaticFilesStorage' if DEBUG
+    else 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+)
+
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
     },
     'staticfiles': {
-        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        'BACKEND': STATICFILES_BACKEND,
     },
 }
 

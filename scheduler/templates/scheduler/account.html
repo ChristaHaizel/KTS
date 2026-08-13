@@ -97,18 +97,39 @@
                 {% csrf_token %}
                 <div class="mb-3">
                     <label class="form-label" for="id_old_password">Current password</label>
-                    <input type="password" name="old_password" id="id_old_password"
-                           class="form-control" autocomplete="current-password" required>
+                    <div class="password-field">
+                        <input type="password" name="old_password" id="id_old_password"
+                               class="form-control" autocomplete="current-password" required>
+                        <button type="button" class="password-toggle"
+                                aria-label="Show password" aria-pressed="false"
+                                aria-controls="id_old_password">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label" for="id_new_password1">New password</label>
-                    <input type="password" name="new_password1" id="id_new_password1"
-                           class="form-control" autocomplete="new-password" required>
+                    <div class="password-field">
+                        <input type="password" name="new_password1" id="id_new_password1"
+                               class="form-control" autocomplete="new-password" required>
+                        <button type="button" class="password-toggle"
+                                aria-label="Show password" aria-pressed="false"
+                                aria-controls="id_new_password1">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label" for="id_new_password2">Confirm new password</label>
-                    <input type="password" name="new_password2" id="id_new_password2"
-                           class="form-control" autocomplete="new-password" required>
+                    <div class="password-field">
+                        <input type="password" name="new_password2" id="id_new_password2"
+                               class="form-control" autocomplete="new-password" required>
+                        <button type="button" class="password-toggle"
+                                aria-label="Show password" aria-pressed="false"
+                                aria-controls="id_new_password2">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                    </div>
                 </div>
                 <ul class="import-notes mb-4">
                     <li>At least 8 characters, not entirely numbers</li>

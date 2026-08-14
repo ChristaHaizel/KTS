@@ -2,9 +2,9 @@
 {% block title %}Time Slots - KTS{% endblock %}
 {% block page_title %}Time Slots{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header mb-4">
     <div class="record-count">{{ total_count }} time slot(s) on record</div>
-    <div class="d-flex gap-2">
+    <div class="page-header-actions">
         <a href="{% url 'bulk_delete' 'timeslots' %}" class="btn-delete-all">
             <i class="bi bi-trash me-1"></i> Delete all
         </a>

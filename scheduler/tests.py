@@ -1,8 +1,10 @@
 import random
 import re
 from datetime import time
+from pathlib import Path
 
 from django.contrib.auth.models import Group, User
+from django.contrib.staticfiles import finders
 from django.core import mail
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -2442,8 +2444,11 @@ class PasswordToggleTests(TestCase):
         self._check(self.client.get(self._reset_confirm_url()).content.decode(), 2)
 
     def test_the_shared_script_is_served(self):
-        response = self.client.get('/static/scheduler/password-toggle.js')
-        self.assertIn(response.status_code, (200, 301, 302))
+        """Asked of the finders rather than of a URL: a request for it only
+        succeeds once collectstatic has run, so going through the URL would
+        pass or fail on the state of a build directory rather than on whether
+        the file is where the app says it is."""
+        self.assertIsNotNone(finders.find('scheduler/password-toggle.js'))
 
     def test_no_page_ships_its_own_copy_of_the_toggle_script(self):
         """It lived inline in two templates before; a third copy was the prompt
@@ -2453,6 +2458,111 @@ class PasswordToggleTests(TestCase):
             with self.subTest(url=url):
                 body = self.client.get(url).content.decode()
                 self.assertNotIn("input.type = wasRevealed", body)
+
+
+class MobileLayoutTests(TestCase):
+    """The shell has to survive a phone.
+
+    The sidebar is fixed at 250px with an equal margin holding the content
+    clear of it, which on a 390px screen leaves the page about 140px to live
+    in. Below the tablet breakpoint the sidebar becomes a drawer instead.
+    These guard the pieces of that which are easy to break from a distance.
+    """
+
+    TEMPLATES = Path(__file__).resolve().parent / 'templates' / 'scheduler'
+
+    def _template(self, name):
+        return (self.TEMPLATES / name).read_text(encoding='utf-8')
+
+    def _drawer_media_block(self):
+        """Find the @media block that folds the sidebar away, and the width it
+        does it at.
+
+        Located by what it does - it is the one that turns the drawer button
+        on - rather than by a width written down here as well, so the
+        breakpoint has exactly one home.
+        """
+        css = self._template('base.html')
+        for match in re.finditer(r'@media \(max-width: (\d+(?:\.\d+)?)px\)', css):
+            depth, opened = 0, css.index('{', match.end() - 1)
+            for end in range(opened, len(css)):
+                if css[end] == '{':
+                    depth += 1
+                elif css[end] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+            else:
+                self.fail('a media block is never closed')
+            body = css[opened:end]
+            if '.nav-toggle' in body:
+                return float(match.group(1)), body
+        self.fail('no media block turns the drawer button on')
+
+    def test_both_shells_declare_a_viewport(self):
+        """Without this a phone lays the page out at 980px and scales the
+        result down, so every media query below resolves against the wrong
+        width and the text arrives too small to read."""
+        for shell in ['base.html', 'auth_base.html']:
+            with self.subTest(shell=shell):
+                self.assertIn('width=device-width', self._template(shell))
+
+    def test_the_app_shell_ships_the_drawer(self):
+        self.client.force_login(make_admin())
+        body = self.client.get('/').content.decode()
+        for element in ['id="sidebar"', 'id="nav-toggle"',
+                        'id="nav-backdrop"', 'id="nav-close"']:
+            with self.subTest(element=element):
+                self.assertIn(element, body)
+        self.assertIn('nav-drawer.js', body)
+
+    def test_the_drawer_script_is_served(self):
+        """Asked of the finders rather than of a URL: serving it also depends
+        on collectstatic having been run, which is true of a deploy but not of
+        a fresh clone, and that is not what this is checking."""
+        self.assertIsNotNone(finders.find('scheduler/nav-drawer.js'))
+
+    def test_the_content_is_not_held_clear_of_a_sidebar_that_has_gone(self):
+        """The margin is what reserves the sidebar's 250px. Leave it in place
+        once the sidebar is off-canvas and the page is 250px narrower than the
+        phone for no reason at all - which is the whole bug."""
+        _, block = self._drawer_media_block()
+        self.assertRegex(block, r'\.main-wrap\s*\{[^}]*margin-left:\s*0')
+
+    def test_the_stylesheet_and_the_script_agree_on_the_breakpoint(self):
+        """The CSS decides when the sidebar folds away; the script decides when
+        to drop the open state. If the two drift apart there is a band of
+        widths where the drawer is the only navigation and cannot be opened,
+        or where it stays latched open over a sidebar that is already visible.
+        """
+        script = (Path(__file__).resolve().parent / 'static' / 'scheduler'
+                  / 'nav-drawer.js').read_text(encoding='utf-8')
+        css_max, _ = self._drawer_media_block()
+        js_min = float(re.search(r'min-width:\s*(\d+)px', script).group(1))
+        self.assertLess(css_max, js_min)
+        self.assertLess(js_min - css_max, 1.0,
+                        f'the drawer folds away at {css_max}px and the script '
+                        f'gives up on it at {js_min}px; widths between the two '
+                        f'are covered by neither')
+
+    def test_list_pages_use_the_page_header_component(self):
+        """A row of utility classes cannot be taught to wrap. The named
+        component can, and does, in the media block above."""
+        pages = ['lecturers.html', 'courses.html', 'rooms.html',
+                 'studentgroups.html', 'students.html', 'timeslots.html',
+                 'notifications.html']
+        for page in pages:
+            with self.subTest(page=page):
+                markup = self._template(page)
+                self.assertIn('class="page-header mb-4"', markup)
+                self.assertIn('class="page-header-actions"', markup)
+                self.assertNotIn('d-flex justify-content-between', markup)
+
+    def test_the_drawer_opens_over_the_page_rather_than_beside_it(self):
+        """A drawer as wide as the screen reads as a new page, and there is
+        then nothing left showing to tap to get back."""
+        _, block = self._drawer_media_block()
+        self.assertRegex(block, r'max-width:\s*\d+vw')
 
 
 class StudentEmailTests(TestCase):

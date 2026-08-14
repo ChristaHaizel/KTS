@@ -129,6 +129,7 @@
             border-right: 1px solid var(--kts-blue-dark);
         }
         .sidebar-brand {
+            position: relative;   /* anchors the drawer close button */
             padding: var(--sp-5) var(--sp-5) 20px;
             border-bottom: 1px solid rgba(255,255,255,0.12);
         }
@@ -183,6 +184,57 @@
             background: rgba(255,255,255,0.18);
             color: var(--on-brand);
         }
+
+        /* Drawer controls. On a wide screen the sidebar is simply present and
+           none of this shows; the media query at the foot of this stylesheet
+           turns them on where the sidebar has to fold away. */
+        .nav-toggle {
+            display: none;
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            margin-right: var(--sp-3);
+            border: 1.5px solid var(--line-strong);
+            border-radius: var(--r-circle);
+            background: var(--surface);
+            color: var(--kts-blue);
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .nav-toggle:hover { border-color: var(--kts-blue); background: var(--kts-blue-tint); }
+        .nav-close {
+            display: none;
+            position: absolute;
+            top: 18px;
+            right: 14px;
+            width: 34px;
+            height: 34px;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: var(--r-circle);
+            background: rgba(255,255,255,0.12);
+            color: var(--on-brand);
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .nav-close:hover { background: rgba(255,255,255,0.24); }
+        /* Sits above the page but below the drawer, so a tap anywhere off the
+           drawer - including on the button that opened it - closes it. */
+        .nav-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 90;
+            background: rgba(15, 23, 42, 0.45);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s ease, visibility 0.25s;
+        }
+
         /* Main content */
         .main-wrap {
             margin-left: 250px;
@@ -201,11 +253,17 @@
             top: 0;
             z-index: 50;
         }
+        .topbar-left { display: flex; align-items: center; min-width: 0; }
         .topbar-title {
             font-size: 1.15rem;
             font-weight: 600;
             color: var(--kts-blue);
             margin: 0;
+            /* A long title truncates rather than shoving Sign Out off the edge. */
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .topbar-user {
             display: flex;
@@ -943,6 +1001,17 @@
         }
         .badge-spaced { margin: 0 var(--sp-1) var(--sp-1) 0; }
 
+        /* The row above a data table: what is on record, and what you can do
+           to it. A named component rather than a string of utility classes,
+           because it has to rearrange itself on a narrow screen. */
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: var(--sp-3);
+        }
+        .page-header-actions { display: flex; gap: var(--sp-2); }
+
         /* Small shared utilities */
         .record-count { color: var(--ink-muted); font-size: 0.875rem; }
         .text-faint { color: var(--ink-faint); font-weight: 400; }
@@ -1060,6 +1129,95 @@
         .metric-label { font-size: 0.75rem; color: var(--ink-faint); margin-top: var(--sp-1); }
         .winner-row td { font-weight: 700; color: var(--kts-blue); }
 
+        /* ------------------------------------------------------------------
+           Narrow screens.
+
+           The sidebar is 250px and fixed, and the content is pushed clear of
+           it by an equal margin. On a 390px phone that leaves the page about
+           140px to live in, which is what "it does not fit" means in practice.
+           Below the tablet breakpoint the sidebar comes out of the layout
+           entirely and becomes a drawer, and the rest of the chrome gives up
+           the padding it can no longer afford.
+           ------------------------------------------------------------------ */
+        @media (max-width: 991.98px) {
+            .sidebar {
+                width: 272px;
+                /* Never the whole screen: the strip of page still showing is
+                   what tells you the drawer is a layer over it, not a new page. */
+                max-width: 84vw;
+                transform: translateX(-100%);
+                visibility: hidden;
+                transition: transform 0.25s ease, visibility 0.25s;
+            }
+            body.nav-open .sidebar { transform: translateX(0); visibility: visible; }
+            body.nav-open .nav-backdrop { opacity: 1; visibility: visible; }
+            /* The page behind must not scroll under the drawer. */
+            body.nav-open { overflow: hidden; }
+
+            .main-wrap { margin-left: 0; }
+            .nav-toggle { display: inline-flex; }
+            .nav-close { display: flex; }
+
+            .topbar { padding: var(--sp-3) var(--sp-4); }
+            .topbar-title { font-size: 1.05rem; }
+            .content-area { padding: 20px var(--sp-4); }
+            .impersonation-banner { padding: var(--sp-3) var(--sp-4); }
+
+            .kts-card { padding: 20px 18px; }
+            .stat-card { padding: 18px 16px; }
+            .stat-icon { width: 40px; height: 40px; font-size: 1.1rem; margin-bottom: 10px; }
+            .stat-number { font-size: 1.6rem; }
+
+            .data-table thead th,
+            .data-table tbody td { padding: 12px 14px; }
+
+            /* The field takes the row and the buttons drop below it, rather
+               than the field being squeezed to nothing between them. */
+            .search-bar { flex-wrap: wrap; }
+            .search-field { flex: 1 0 100%; max-width: none; }
+
+            /* Count on its own line, actions on the next. */
+            .page-header { flex-wrap: wrap; }
+            .page-header .record-count { flex: 1 0 100%; }
+
+            .pager { flex-wrap: wrap; }
+
+            /* Timetable. The grid is far wider than any phone, so it scrolls
+               sideways - and the day has to stay pinned, or scrolling to the
+               afternoon leaves you reading a row with no idea which day it is. */
+            .timetable-table .day-heading,
+            .timetable-table .day-cell {
+                position: sticky;
+                left: 0;
+                z-index: 2;
+                width: 74px;
+                min-width: 74px;
+            }
+            .timetable-table .day-cell { background: var(--surface); }
+            /* Without a floor the columns divide the width between them and
+               every pill wraps to one word per line. */
+            .timetable-table tbody td:not(.day-cell) { min-width: 132px; }
+        }
+
+        /* Phones proper, where two buttons side by side no longer fit the row. */
+        @media (max-width: 480px) {
+            .page-header-actions { flex: 1 0 100%; }
+            .page-header-actions > *,
+            .page-header-actions form,
+            .page-header-actions form > * {
+                flex: 1;
+                width: 100%;
+                text-align: center;
+                white-space: nowrap;
+            }
+        }
+
+        /* Honour a system-level request for less movement: the drawer still
+           opens and closes, it just stops sliding. */
+        @media (prefers-reduced-motion: reduce) {
+            .sidebar, .nav-backdrop { transition: none; }
+        }
+
         /* Login alert (login.html carries its own copy of the tokens) */
         .login-alert {
             border-radius: var(--r-card);
@@ -1072,10 +1230,13 @@
     </style>
 </head>
 <body>
-<div class="sidebar">
+<div class="sidebar" id="sidebar">
     <div class="sidebar-brand">
         <div class="logo-text">KTS</div>
         <div class="logo-sub">KNUST Timetable System</div>
+        <button type="button" class="nav-close" id="nav-close" aria-label="Close menu">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
     </div>
     <div class="sidebar-nav">
         <div class="nav-section-label">Main</div>
@@ -1138,9 +1299,17 @@
     </div>
 </div>
 
+<div class="nav-backdrop" id="nav-backdrop"></div>
+
 <div class="main-wrap">
     <div class="topbar">
-        <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
+        <div class="topbar-left">
+            <button type="button" class="nav-toggle" id="nav-toggle"
+                    aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+                <i class="bi bi-list" aria-hidden="true"></i>
+            </button>
+            <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
+        </div>
         <div class="topbar-user">
             <div class="user-avatar">{{ avatar_initial }}</div>
             <span class="topbar-username">
@@ -1192,5 +1361,6 @@
 
 <script src="{% static 'scheduler/vendor/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
+<script src="{% static 'scheduler/nav-drawer.js' %}"></script>
 </body>
 </html>

@@ -1,5 +1,18 @@
+import smtplib
+
 from django import forms
+
 from .models import Lecturer, Course, Room, Student, StudentGroup, TimeSlot
+
+# What a mail server that will not take the message looks like from in here.
+# OSError covers a refused connection, a host that does not resolve, a timeout
+# and a TLS failure; SMTPException covers everything the protocol itself can
+# object to, of which rejected credentials is by far the most likely.
+#
+# Django's own PasswordResetForm.send_mail already catches these and logs them,
+# so a reset does not fail on a mail server that is down. This is here for the
+# test-send on My Account, which needs to report the reason rather than bury it.
+MAIL_DELIVERY_ERRORS = (OSError, smtplib.SMTPException)
 
 
 class LecturerForm(forms.ModelForm):

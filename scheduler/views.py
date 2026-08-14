@@ -7,6 +7,8 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib import messages
 from urllib.parse import quote
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
@@ -31,8 +33,8 @@ from .genetic_algorithm import (
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
 )
 from .forms import (
-    LecturerForm, CourseForm, MyEmailForm, RoomForm, StudentForm, StudentGroupForm,
-    TimeSlotForm,
+    MAIL_DELIVERY_ERRORS, LecturerForm, CourseForm, MyEmailForm, RoomForm,
+    StudentForm, StudentGroupForm, TimeSlotForm,
 )
 from .notifications import notify, notify_all_students, notify_group_of_change
 
@@ -273,12 +275,74 @@ def my_account(request):
                 messages.success(request, 'Your password has been changed.')
                 return redirect('my_account')
 
+        elif 'test_email' in request.POST and is_admin(request.user):
+            _send_test_email(request)
+            return redirect('my_account')
+
     return render(request, 'scheduler/account.html', {
         'profile': profile,
         'email_form': email_form,
         'password_form': password_form,
         'previewing': previewing,
+        'mail_is_configured': bool(settings.EMAIL_HOST),
+        'mail_host': settings.EMAIL_HOST,
+        'mail_port': settings.EMAIL_PORT,
+        'mail_from': settings.DEFAULT_FROM_EMAIL,
     })
+
+
+def _send_test_email(request):
+    """Try one real send and report what happened, in full.
+
+    Password resets are sent by a background code path whose failures only
+    reach the log. On a host with no shell that log is awkward to get at, so
+    this is the same send made deliberately, with the mail server's own words
+    put on the screen - which is the difference between "no email arrived" and
+    "the provider rejected the password".
+    """
+    if not request.user.email:
+        messages.error(
+            request,
+            'Add your own email address first - there is nowhere to send it.',
+        )
+        return
+
+    if not settings.EMAIL_HOST:
+        messages.warning(
+            request,
+            'No mail server is configured, so password reset emails are written '
+            'to the application log instead of being sent. Set EMAIL_HOST, '
+            'EMAIL_PORT, EMAIL_HOST_USER and EMAIL_HOST_PASSWORD to send them.',
+        )
+        return
+
+    try:
+        send_mail(
+            subject='KTS test email',
+            message=(
+                'This is a test from the KNUST Timetable System.\n\n'
+                'If you are reading it, password reset emails will arrive too.'
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[request.user.email],
+            fail_silently=False,
+        )
+    except MAIL_DELIVERY_ERRORS as exc:
+        logger.exception('Test email to %s failed', request.user.username)
+        messages.error(
+            request,
+            f'The mail server refused the message: {exc.__class__.__name__}: {exc} '
+            f'(host {settings.EMAIL_HOST}, port {settings.EMAIL_PORT}). '
+            f'Password reset emails are failing the same way.',
+        )
+        return
+
+    logger.info('%s sent themselves a test email', request.user.username)
+    messages.success(
+        request,
+        f'Test email sent to {request.user.email}. If it does not arrive within '
+        f'a few minutes, check the spam folder before changing any settings.',
+    )
 
 @login_required
 def notification_list(request):

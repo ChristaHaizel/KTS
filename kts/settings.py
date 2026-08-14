@@ -191,13 +191,54 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
 
+def _env_int(name, default):
+    """Read a whole number from the environment, tolerating an empty value.
+
+    A dashboard makes it easy to add a key and save before typing the value,
+    or to clear one while leaving it in place. int('') raises, and because
+    this runs while the settings module is still being imported, that failure
+    takes down every page on the site rather than the one feature the setting
+    belongs to - a bare "Internal Server Error" everywhere, with the cause
+    nowhere near it. An absent value and a blank one mean the same thing here.
+    """
+    raw = (os.environ.get(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f'{name} must be a whole number, or left unset to use {default}. '
+            f'It is currently {raw!r}.'
+        ) from None
+
+
+def _env_bool(name, default):
+    """Read a flag, treating an empty value as absent for the same reason.
+
+    Comparing against 'True' would quietly read a blank as False, which for
+    EMAIL_USE_TLS means silently dropping TLS rather than reporting anything.
+    """
+    raw = (os.environ.get(name) or '').strip().lower()
+    if not raw:
+        return default
+    if raw in ('true', '1', 'yes', 'on'):
+        return True
+    if raw in ('false', '0', 'no', 'off'):
+        return False
+    raise RuntimeError(
+        f'{name} must be true or false, or left unset to use {default}. '
+        f'It is currently {raw!r}.'
+    )
+
+
 # Outbound mail, for password resets. Everything comes from the environment so
 # no credential is committed.
-EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '').strip()
+EMAIL_PORT = _env_int('EMAIL_PORT', 587)
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True)
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', 'KNUST Timetable System <no-reply@example.com>'
 )
@@ -212,7 +253,7 @@ else:
     # provider is not set up yet, where the link can be read out of the logs.
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-PASSWORD_RESET_TIMEOUT = int(os.environ.get('PASSWORD_RESET_TIMEOUT', 60 * 60 * 24))
+PASSWORD_RESET_TIMEOUT = _env_int('PASSWORD_RESET_TIMEOUT', 60 * 60 * 24)
 
 
 # Logging. Without this, an exception in production is a 500 page for the user and

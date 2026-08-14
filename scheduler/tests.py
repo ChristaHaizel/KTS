@@ -1,7 +1,11 @@
+import importlib
+import os
 import random
 import re
+import smtplib
 from datetime import time
 from pathlib import Path
+from unittest import mock
 
 from django.contrib.auth.models import Group, User
 from django.contrib.staticfiles import finders
@@ -9,7 +13,7 @@ from django.core import mail
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from . import charts
@@ -2458,6 +2462,189 @@ class PasswordToggleTests(TestCase):
             with self.subTest(url=url):
                 body = self.client.get(url).content.decode()
                 self.assertNotIn("input.type = wasRevealed", body)
+
+
+class EnvironmentSettingTests(SimpleTestCase):
+    """A setting read at import time can take the whole site down.
+
+    Adding a key in a hosting dashboard and saving before typing the value is
+    an easy thing to do, and clearing a value usually leaves the key in place.
+    An empty string is not a number, and the resulting ValueError happens while
+    the settings module is still being imported - so it is not a broken
+    feature, it is a bare "Internal Server Error" on every page, with nothing
+    on screen to connect it to the variable that caused it.
+    """
+
+    def _reload_settings(self, **environment):
+        """Import the settings module afresh under the given environment."""
+        base = {
+            'DEBUG': 'False',
+            'SECRET_KEY': 'test-only-' + 'x' * 40,
+            'ALLOWED_HOSTS': 'example.com',
+        }
+        base.update(environment)
+        with mock.patch.dict(os.environ, base, clear=False):
+            for name in environment:
+                if environment[name] is None:
+                    os.environ.pop(name, None)
+            return importlib.reload(importlib.import_module('kts.settings'))
+
+    def tearDown(self):
+        # Leave the module holding the values the rest of the suite expects.
+        importlib.reload(importlib.import_module('kts.settings'))
+
+    def test_a_blank_number_falls_back_instead_of_felling_the_site(self):
+        for name, attribute, default in [
+            ('EMAIL_PORT', 'EMAIL_PORT', 587),
+            ('PASSWORD_RESET_TIMEOUT', 'PASSWORD_RESET_TIMEOUT', 60 * 60 * 24),
+        ]:
+            with self.subTest(name=name):
+                settings_module = self._reload_settings(**{name: ''})
+                self.assertEqual(getattr(settings_module, attribute), default)
+
+    def test_whitespace_around_a_number_is_not_fatal_either(self):
+        """Copying a value out of a document brings the spaces with it."""
+        self.assertEqual(self._reload_settings(EMAIL_PORT=' 2525 ').EMAIL_PORT, 2525)
+
+    def test_a_value_that_is_genuinely_wrong_says_which_one(self):
+        with self.assertRaises(RuntimeError) as caught:
+            self._reload_settings(EMAIL_PORT='five eight seven')
+        message = str(caught.exception)
+        self.assertIn('EMAIL_PORT', message)
+        self.assertIn('whole number', message)
+
+    def test_a_blank_flag_keeps_its_default_rather_than_reading_as_false(self):
+        """EMAIL_USE_TLS was compared against the string 'True', so a blank
+        value quietly turned TLS off - a silent downgrade rather than an
+        error, which is worse than the crash."""
+        self.assertIs(self._reload_settings(EMAIL_USE_TLS='').EMAIL_USE_TLS, True)
+
+    def test_a_flag_accepts_what_people_actually_type(self):
+        for raw, expected in [('true', True), ('True', True), ('1', True),
+                              ('false', False), ('False', False), ('0', False),
+                              ('no', False), ('YES', True)]:
+            with self.subTest(raw=raw):
+                self.assertIs(
+                    self._reload_settings(EMAIL_USE_TLS=raw).EMAIL_USE_TLS, expected)
+
+    def test_a_flag_that_is_neither_says_which_one(self):
+        with self.assertRaises(RuntimeError) as caught:
+            self._reload_settings(EMAIL_USE_TLS='maybe')
+        self.assertIn('EMAIL_USE_TLS', str(caught.exception))
+
+    def test_a_mail_host_with_stray_whitespace_still_counts_as_configured(self):
+        """A trailing space would otherwise leave EMAIL_HOST truthy but the
+        connection pointed at a host that does not resolve."""
+        self.assertEqual(
+            self._reload_settings(EMAIL_HOST=' smtp.gmail.com ').EMAIL_HOST,
+            'smtp.gmail.com')
+
+
+class PasswordResetDeliveryTests(TestCase):
+    """Django already treats a mail server that will not take the message as a
+    non-event: PasswordResetForm.send_mail catches and logs it, so the reset
+    still reports the same thing it reports for an address that is not on
+    file. These hold that behaviour in place, because losing it would turn a
+    misconfigured mail server into a 500 for whoever is resetting."""
+
+    def setUp(self):
+        self.student = Student.objects.create(
+            student_id='20512099', name='Ama', email='ama@st.knust.edu.gh')
+        create_student_account(self.student)
+        self.student.refresh_from_db()
+
+    def _reset_with_mail_failing_as(self, error):
+        with mock.patch('django.core.mail.EmailMultiAlternatives.send',
+                        side_effect=error):
+            return self.client.post(
+                '/password-reset/', {'email': self.student.user.email})
+
+    def test_a_refused_connection_does_not_500(self):
+        """A wrong EMAIL_HOST, or a port with nothing behind it."""
+        response = self._reset_with_mail_failing_as(
+            ConnectionRefusedError(61, 'Connection refused'))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/password-reset/sent/')
+
+    def test_rejected_credentials_do_not_500(self):
+        """By far the likeliest: a provider that wants an app password."""
+        response = self._reset_with_mail_failing_as(
+            smtplib.SMTPAuthenticationError(
+                535, b'5.7.8 Username and Password not accepted'))
+        self.assertEqual(response.status_code, 302)
+
+    def test_a_failed_send_looks_the_same_as_an_address_not_on_file(self):
+        """The flow answers identically either way on purpose, so the form
+        cannot be used to discover who has an account. An error page for real
+        addresses only would hand that straight over."""
+        broken = self._reset_with_mail_failing_as(ConnectionRefusedError())
+        unknown = self.client.post(
+            '/password-reset/', {'email': 'nobody@st.knust.edu.gh'})
+        self.assertEqual(broken.status_code, unknown.status_code)
+        self.assertEqual(broken.url, unknown.url)
+
+    def test_a_working_send_still_sends(self):
+        response = self.client.post(
+            '/password-reset/', {'email': self.student.user.email})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('/password-reset/', mail.outbox[0].body)
+
+
+class TestEmailButtonTests(TestCase):
+    """The reason a reset failed only reaches the log, and the host this runs
+    on has no shell to read one with."""
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.admin.email = 'boss@knust.edu.gh'
+        self.admin.save()
+        self.client.force_login(self.admin)
+
+    @override_settings(EMAIL_HOST='smtp.example.com')
+    def test_it_reports_the_mail_servers_own_words(self):
+        with mock.patch('scheduler.views.send_mail',
+                        side_effect=smtplib.SMTPAuthenticationError(
+                            535, b'5.7.8 Username and Password not accepted')):
+            response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        body = response.content.decode()
+        self.assertIn('SMTPAuthenticationError', body)
+        self.assertIn('Username and Password not accepted', body)
+        self.assertIn('smtp.example.com', body)
+
+    @override_settings(EMAIL_HOST='smtp.example.com')
+    def test_a_working_server_says_so(self):
+        response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['boss@knust.edu.gh'])
+        self.assertIn('Test email sent', response.content.decode())
+
+    @override_settings(EMAIL_HOST='')
+    def test_an_unconfigured_server_is_called_out_rather_than_looking_fine(self):
+        """With no host the backend writes to the log and reports success, so
+        a plain send would claim everything works."""
+        response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        self.assertIn('No mail server is configured', response.content.decode())
+
+    def test_it_needs_an_address_to_send_to(self):
+        self.admin.email = ''
+        self.admin.save()
+        response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        self.assertIn('Add your own email address first', response.content.decode())
+        self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(EMAIL_HOST='smtp.example.com')
+    def test_it_is_not_offered_to_anyone_else(self):
+        """A student pressing it would send mail on the deployment's account."""
+        student = Student.objects.create(student_id='20512001', name='Ama')
+        create_student_account(student)
+        student.refresh_from_db()
+        self.client.force_login(student.user)
+
+        self.assertNotIn('Email delivery',
+                         self.client.get('/account/').content.decode())
+        self.client.post('/account/', {'test_email': '1'}, follow=True)
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class MobileLayoutTests(TestCase):

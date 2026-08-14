@@ -74,6 +74,38 @@
                 </button>
             </form>
         </div>
+
+        {% if is_admin %}
+        {% comment %}
+        Administrator only. Reset emails are sent by a code path whose failures
+        only reach the log, and this host has no shell to read one with, so
+        this makes the same send on purpose and puts the answer on the screen.
+        {% endcomment %}
+        <div class="kts-card mt-4">
+            <div class="kts-card-title"><i class="bi bi-send"></i> Email delivery</div>
+            {% if mail_is_configured %}
+            <p class="card-lede">
+                Sending through <strong>{{ mail_host }}</strong> on port
+                {{ mail_port }}, as {{ mail_from }}. Send yourself a test to
+                check that password reset emails actually arrive.
+            </p>
+            {% else %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                No mail server is configured. Password reset links are written to
+                the application log instead of being sent, so nobody can reset
+                their own password without you reading the log to them.
+            </div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" name="test_email" class="btn btn-kts-outline"
+                        {% if previewing %}disabled{% endif %}>
+                    <i class="bi bi-envelope-check me-1"></i> Send a test email
+                </button>
+            </form>
+        </div>
+        {% endif %}
     </div>
 
     <div class="col-md-6">

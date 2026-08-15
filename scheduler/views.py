@@ -21,7 +21,8 @@ from .permissions import (
 )
 from .models import (
     TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup,
-    TimeSlot, GenerationRun, Student, Notification, day_ordering,
+    TimeSlot, GenerationRun, Student, Notification, College, Department,
+    day_ordering,
 )
 from .accounts import create_student_account, derive_username, generate_password
 from .baselines import compare
@@ -34,8 +35,8 @@ from .genetic_algorithm import (
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
 )
 from .forms import (
-    LecturerForm, CourseForm, MyEmailForm, RoomForm, StudentForm,
-    StudentGroupForm, TimeSlotForm,
+    CollegeForm, DepartmentForm, LecturerForm, CourseForm, MyEmailForm,
+    RoomForm, StudentForm, StudentGroupForm, TimeSlotForm,
 )
 from .notifications import notify, notify_all_students, notify_group_of_change
 
@@ -1029,6 +1030,88 @@ def course_delete(request, pk):
         messages.success(request, f"Course {course.code} deleted.")
         return redirect('courses')
     return render(request, 'scheduler/course_confirm_delete.html', {'course': course})
+
+@login_required
+@admin_required
+def college_list(request):
+    colleges = College.objects.annotate(department_count=Count('departments'))
+    return render(request, 'scheduler/colleges.html', _list_context(
+        request, colleges, ['name'], 'colleges',
+    ))
+
+
+@login_required
+@admin_required
+def college_edit(request, pk=None):
+    college = get_object_or_404(College, pk=pk) if pk else None
+    if request.method == 'POST':
+        form = CollegeForm(request.POST, instance=college)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f"College {'updated' if pk else 'added'} successfully.")
+            return redirect('colleges')
+    else:
+        form = CollegeForm(instance=college)
+    return render(request, 'scheduler/college_form.html',
+                  {'form': form, 'college': college})
+
+
+@login_required
+@admin_required
+def college_delete(request, pk):
+    college = get_object_or_404(College, pk=pk)
+    if request.method == 'POST':
+        college.delete()
+        messages.success(request, f'College {college.name} deleted.')
+        return redirect('colleges')
+    return render(request, 'scheduler/college_confirm_delete.html', {'college': college})
+
+
+@login_required
+@admin_required
+def department_list(request):
+    departments = (Department.objects
+                   .select_related('college')
+                   .annotate(student_count=Count('students')))
+    return render(request, 'scheduler/departments.html', _list_context(
+        request, departments, ['name', 'college__name'], 'departments',
+    ))
+
+
+@login_required
+@admin_required
+def department_edit(request, pk=None):
+    department = get_object_or_404(Department, pk=pk) if pk else None
+    if request.method == 'POST':
+        form = DepartmentForm(request.POST, instance=department)
+        if form.is_valid():
+            department = form.save()
+            # Programme follows department, and renaming one has to carry to
+            # the students already on it - otherwise the students page and the
+            # student's own account disagree about what they are studying.
+            # College too, since a department can be moved between colleges.
+            for student in department.students.all():
+                student.save(update_fields=['programme', 'college'])
+            messages.success(request, f"Department {'updated' if pk else 'added'} successfully.")
+            return redirect('departments')
+    else:
+        form = DepartmentForm(instance=department)
+    return render(request, 'scheduler/department_form.html',
+                  {'form': form, 'department': department})
+
+
+@login_required
+@admin_required
+def department_delete(request, pk):
+    department = get_object_or_404(Department, pk=pk)
+    if request.method == 'POST':
+        name = department.name
+        department.delete()
+        messages.success(request, f'Department {name} deleted.')
+        return redirect('departments')
+    return render(request, 'scheduler/department_confirm_delete.html',
+                  {'department': department})
+
 
 @login_required
 @admin_required

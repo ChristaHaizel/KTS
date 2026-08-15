@@ -1,0 +1,40 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Delete Department - KTS{% endblock %}
+{% block page_title %}Delete Department{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title danger">
+                <i class="bi bi-exclamation-triangle"></i> Delete {{ department.name }}?
+            </div>
+            <p class="card-lede">
+                This permanently removes <strong>{{ department.name }}</strong>
+                from {{ department.college.name }}. This cannot be undone.
+            </p>
+            {% if department.students.exists %}
+            <div class="impact-panel">
+                <div class="impact-title">What happens to the students</div>
+                <ul class="impact-list">
+                    <li>{{ department.students.count }} student(s) lose their
+                        department. Their programme stays on their record as
+                        text, so nothing disappears from the students page.</li>
+                    <li>They can no longer be found by department, and this
+                        department stops appearing when a student sets up an
+                        account.</li>
+                </ul>
+            </div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn-danger-kts">
+                        <i class="bi bi-trash me-1"></i> Delete Department
+                    </button>
+                    <a href="{% url 'departments' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

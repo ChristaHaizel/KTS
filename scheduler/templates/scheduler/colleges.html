@@ -1,0 +1,60 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Colleges - KTS{% endblock %}
+{% block page_title %}Colleges{% endblock %}
+{% block content %}
+<div class="page-header mb-4">
+    <div class="record-count">{{ total_count }} college(s) on record</div>
+    <div class="page-header-actions">
+        <a href="{% url 'college_add' %}" class="btn btn-kts-primary">
+            <i class="bi bi-plus-lg me-1"></i> Add College
+        </a>
+    </div>
+</div>
+
+{% include 'scheduler/_search.html' with placeholder='Search by college name' %}
+
+<div class="kts-card flush">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Departments</th>
+                    <th style="width:100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for college in colleges %}
+                <tr>
+                    <td class="cell-primary" data-label="Name">{{ college.name }}</td>
+                    <td data-label="Departments">
+                        <a href="{% url 'departments' %}?q={{ college.name|urlencode }}">
+                            {{ college.department_count }}
+                        </a>
+                    </td>
+                    <td>
+                        <div class="row-actions">
+                            <a href="{% url 'college_edit' college.pk %}" class="icon-btn icon-edit" title="Edit {{ college.name }}">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                            <a href="{% url 'college_delete' college.pk %}" class="icon-btn icon-delete" title="Delete {{ college.name }}">
+                                <i class="bi bi-trash"></i>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="empty-state">
+                        <i class="bi bi-buildings"></i>
+                        No colleges yet. Students cannot set up their own accounts
+                        until there is at least one, with a department in it.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% include 'scheduler/_pager.html' with page=colleges %}
+</div>
+{% endblock %}

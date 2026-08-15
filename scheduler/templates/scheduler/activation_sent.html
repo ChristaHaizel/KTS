@@ -1,0 +1,39 @@
+{% extends 'scheduler/auth_base.html' %}
+{% block title %}Account created - KTS{% endblock %}
+{% block body %}
+<div class="auth-card">
+    {% if delivery_failed %}
+    {% comment %}
+    The account exists either way - only the sending failed. Saying "try again"
+    would send them back to a form that will now tell them the record is
+    already taken, which is true and useless.
+    {% endcomment %}
+    <div class="auth-icon bad"><i class="bi bi-exclamation-octagon"></i></div>
+    <h4>Account created, but the email did not send</h4>
+    <p class="auth-lede">
+        Your account exists and is attached to your student record. We could
+        not deliver the password to <strong>{{ student.email }}</strong>.
+    </p>
+    <p class="auth-lede">
+        Do not set it up again - it will tell you the record is already taken.
+        Ask the timetable office to send you a password reset link instead.
+    </p>
+    {% else %}
+    <div class="auth-icon good"><i class="bi bi-envelope-check"></i></div>
+    <h4>Check your email</h4>
+    <p class="auth-lede">
+        Your account is ready. We have sent your password to
+        <strong>{{ student.email }}</strong>.
+    </p>
+    <p class="auth-lede">
+        Sign in with your student ID <strong>{{ student.student_id }}</strong>
+        or that email address. Change the password from My Account once you are
+        in. If nothing arrives in a few minutes, check your spam folder.
+    </p>
+    {% endif %}
+
+    <a href="{% url 'student_login' %}" class="btn-login d-block text-center text-decoration-none">
+        Go to sign in
+    </a>
+</div>
+{% endblock %}

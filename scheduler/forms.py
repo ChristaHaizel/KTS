@@ -1,6 +1,132 @@
 from django import forms
 
-from .models import Lecturer, Course, Room, Student, StudentGroup, TimeSlot
+from .models import (
+    College, Course, Department, Lecturer, Room, Student, StudentGroup, TimeSlot,
+)
+
+
+class DepartmentSelect(forms.Select):
+    """A department dropdown whose options say which college they belong to.
+
+    The browser needs that to narrow the list once a college is picked; the
+    option text is only the department's name, which is not enough to filter
+    on. Rendered as data-college so the script has something to read.
+    """
+
+    def create_option(self, name, value, *args, **kwargs):
+        option = super().create_option(name, value, *args, **kwargs)
+        college_id = getattr(getattr(value, 'instance', None), 'college_id', None)
+        if college_id is not None:
+            option['attrs']['data-college'] = str(college_id)
+        return option
+
+
+class StudentActivationForm(forms.Form):
+    """A student claiming the record the timetable office already holds.
+
+    This creates no student. It finds one, and the finding is the security: an
+    account is only ever attached to a row that was on the roster first.
+
+    Both the ID and the index number have to point at the same row. Student IDs
+    run in sequence, so one can be guessed from a classmate's, and this ends
+    with a password being emailed to whatever address was typed in - which
+    would make guessing an ID a way of taking over that student's account. The
+    index number is not derivable from the ID and is already on file for
+    everyone imported.
+    """
+
+    college = forms.ModelChoiceField(
+        queryset=College.objects.all(),
+        widget=forms.Select(attrs={'class': 'form-select', 'id': 'id_college'}),
+    )
+    department = forms.ModelChoiceField(
+        queryset=Department.objects.select_related('college'),
+        widget=DepartmentSelect(attrs={'class': 'form-select', 'id': 'id_department'}),
+        help_text='Your programme.',
+    )
+    student_id = forms.CharField(
+        max_length=20,
+        widget=forms.TextInput(attrs={'class': 'form-control',
+                                      'placeholder': 'e.g. 20212007'}),
+    )
+    index_number = forms.CharField(
+        max_length=20,
+        label='Index number',
+        widget=forms.TextInput(attrs={'class': 'form-control',
+                                      'placeholder': 'e.g. 7212007'}),
+        help_text='The number on your exam scripts. It proves the record is yours.',
+    )
+    email = forms.EmailField(
+        widget=forms.EmailInput(attrs={'class': 'form-control',
+                                       'placeholder': 'you@st.knust.edu.gh'}),
+        help_text='Your password is sent here, so use one you can open.',
+    )
+
+    def clean_student_id(self):
+        return self.cleaned_data['student_id'].strip()
+
+    def clean_index_number(self):
+        return self.cleaned_data['index_number'].strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        college = cleaned.get('college')
+        department = cleaned.get('department')
+        student_id = cleaned.get('student_id')
+        index_number = cleaned.get('index_number')
+
+        if college and department and department.college_id != college.pk:
+            self.add_error('department',
+                           'That department is not in that college.')
+
+        if not (student_id and index_number):
+            return cleaned
+
+        student = Student.objects.filter(student_id=student_id).first()
+
+        # One message for "no such ID" and for "that is not your index number".
+        # Telling them apart would turn this form into a way of discovering
+        # which student IDs exist, one guess at a time.
+        mismatch = (
+            'We could not match those details to a student record. Check your '
+            'student ID and index number, and ask the timetable office if they '
+            'still do not work.'
+        )
+        if student is None or (student.index_number or '') != index_number:
+            raise forms.ValidationError(mismatch)
+
+        if student.user_id is not None:
+            raise forms.ValidationError(
+                'That student already has an account. Sign in instead, or use '
+                'the forgotten password link if you cannot get in.'
+            )
+
+        cleaned['student'] = student
+        return cleaned
+
+
+class CollegeForm(forms.ModelForm):
+    class Meta:
+        model = College
+        fields = ['name']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control',
+                                           'placeholder': 'e.g. College of Science'}),
+        }
+
+
+class DepartmentForm(forms.ModelForm):
+    class Meta:
+        model = Department
+        fields = ['name', 'college']
+        widgets = {
+            'name': forms.TextInput(attrs={'class': 'form-control',
+                                           'placeholder': 'e.g. Computer Science'}),
+            'college': forms.Select(attrs={'class': 'form-select'}),
+        }
+        help_texts = {
+            'name': 'This is what students see as their programme.',
+        }
 
 
 class LecturerForm(forms.ModelForm):
@@ -111,15 +237,25 @@ class MyEmailForm(forms.Form):
 
 
 class StudentForm(forms.ModelForm):
+    """Programme is not on this form: a department is what sets it.
+
+    Leaving both would let them disagree, and the one that survives on the
+    student's own account is the department. A student whose programme was
+    imported as text and matches no department keeps that text - the field is
+    still there, just not something to type into twice.
+    """
+
     class Meta:
         model = Student
-        fields = ['student_id', 'index_number', 'name', 'email', 'programme', 'level', 'group']
+        fields = ['student_id', 'index_number', 'name', 'email',
+                  'college', 'department', 'level', 'group']
         widgets = {
             'student_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 20512345'}),
             'index_number': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. 7212345'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Ama Serwaa'}),
             'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'e.g. aserwaa@st.knust.edu.gh'}),
-            'programme': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. BSc Computer Science'}),
+            'college': forms.Select(attrs={'class': 'form-select', 'id': 'id_college'}),
+            'department': DepartmentSelect(attrs={'class': 'form-select', 'id': 'id_department'}),
             'level': forms.Select(attrs={'class': 'form-select'}),
             'group': forms.Select(attrs={'class': 'form-select'}),
         }
@@ -130,10 +266,20 @@ class StudentForm(forms.ModelForm):
         }
         help_texts = {
             'student_id': 'This is what they sign in with.',
-            'index_number': 'Optional. Leave blank if they only have one number.',
+            'index_number': 'Optional, but a student needs it to set up their '
+                            'own account.',
             'email': 'Needed only so they can reset their own password.',
+            'department': 'This is their programme.',
             'group': 'The teaching group whose timetable is theirs.',
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        college = cleaned.get('college')
+        department = cleaned.get('department')
+        if college and department and department.college_id != college.pk:
+            self.add_error('department', 'That department is not in that college.')
+        return cleaned
 
 
 class TimeSlotForm(forms.ModelForm):

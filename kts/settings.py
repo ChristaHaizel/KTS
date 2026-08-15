@@ -250,6 +250,14 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 
+# Django's own backend first, so a username - which for a student is their
+# student ID - costs nothing extra. The second only ever sees values that look
+# like an email address.
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'scheduler.auth_backends.EmailBackend',
+]
+
 
 # Outbound mail, for password resets. Everything comes from the environment so
 # no credential is committed.

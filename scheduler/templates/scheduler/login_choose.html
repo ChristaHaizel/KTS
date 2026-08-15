@@ -1,0 +1,79 @@
+{% extends 'scheduler/auth_base.html' %}
+{% block title %}Sign in - KTS{% endblock %}
+{% block extra_css %}
+        .door-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+        .door {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-4);
+            padding: var(--sp-4) 20px;
+            border: 1.5px solid var(--line-strong);
+            border-radius: var(--r-pill);
+            background: var(--surface);
+            color: var(--ink);
+            text-decoration: none;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+        .door:hover { border-color: var(--kts-blue); background: var(--kts-blue-tint); }
+        .door-icon {
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+            border-radius: var(--r-circle);
+            background: var(--kts-blue-tint);
+            color: var(--kts-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+        /* Both are spans inside a span, so they need telling to stack -
+           otherwise the name and its description run together as one line. */
+        .door-title { display: block; font-weight: 600; font-size: 0.95rem; }
+        .door-sub {
+            display: block;
+            font-size: 0.78rem;
+            color: var(--ink-faint);
+            margin-top: 1px;
+        }
+{% endblock %}
+{% block body %}
+<div class="auth-card">
+    <div class="auth-icon"><i class="bi bi-box-arrow-in-right"></i></div>
+    <h4>Sign in</h4>
+    <p class="auth-lede">Which of these are you?</p>
+
+    {% comment %}
+    next is carried through, so someone sent here from a page they were trying
+    to reach still ends up there once they have signed in.
+    {% endcomment %}
+    <div class="door-list">
+        <a class="door" href="{% url 'student_login' %}{% if next %}?next={{ next|urlencode:"" }}{% endif %}">
+            <span class="door-icon"><i class="bi bi-mortarboard"></i></span>
+            <span>
+                <span class="door-title">Student</span>
+                <span class="door-sub">Sign in with your student ID or email</span>
+            </span>
+        </a>
+        <a class="door" href="{% url 'lecturer_login' %}{% if next %}?next={{ next|urlencode:"" }}{% endif %}">
+            <span class="door-icon"><i class="bi bi-person-badge"></i></span>
+            <span>
+                <span class="door-title">Lecturer</span>
+                <span class="door-sub">See your teaching and request changes</span>
+            </span>
+        </a>
+        <a class="door" href="{% url 'admin_login' %}{% if next %}?next={{ next|urlencode:"" }}{% endif %}">
+            <span class="door-icon"><i class="bi bi-sliders"></i></span>
+            <span>
+                <span class="door-title">Timetable office</span>
+                <span class="door-sub">Manage data and generate the timetable</span>
+            </span>
+        </a>
+    </div>
+
+    <div class="auth-footer">
+        First time here?
+        <a href="{% url 'student_activate' %}">Set up your student account</a>
+    </div>
+</div>
+{% endblock %}

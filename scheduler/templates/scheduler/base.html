@@ -299,6 +299,41 @@
             .btn-signout span { display: none; }
             .topbar-username { display: none; }
         }
+        /* Notifications, beside the account they belong to. */
+        .topbar-bell {
+            position: relative;
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--r-circle);
+            color: var(--ink-muted);
+            font-size: 1.05rem;
+            text-decoration: none;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .topbar-bell:hover,
+        .topbar-bell.active { background: var(--kts-blue-tint); color: var(--kts-blue); }
+        .bell-count {
+            position: absolute;
+            top: -1px;
+            right: -2px;
+            min-width: 17px;
+            padding: 0 4px;
+            border-radius: var(--r-pill);
+            background: var(--danger);
+            color: var(--on-brand);
+            font-size: 0.65rem;
+            font-weight: 700;
+            line-height: 17px;
+            text-align: center;
+            /* Against the white topbar the badge would otherwise sit straight
+               on the bell it is counting. */
+            border: 2px solid var(--surface);
+        }
+
         .user-avatar {
             width: 34px;
             height: 34px;
@@ -1349,16 +1384,22 @@
             <i class="bi bi-calendar3"></i>
             {% if is_student %}My Timetable{% else %}Timetable{% endif %}
         </a>
-        <a href="{% url 'notifications' %}" class="nav-link {% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">
-            <i class="bi bi-bell"></i> Notifications
-            {% if unread_notifications %}<span class="nav-badge">{{ unread_notifications }}</span>{% endif %}
-        </a>
+        {% comment %}
+        Notifications live in the topbar now, beside the account they belong
+        to, rather than in the sidebar with the sections of the app.
+        {% endcomment %}
         <a href="{% url 'my_account' %}" class="nav-link {% if request.resolver_match.url_name == 'my_account' %}active{% endif %}">
             <i class="bi bi-person-gear"></i> My Account
             {% if not request.user.email %}<span class="nav-dot" title="No email address on file"></span>{% endif %}
         </a>
         {% if is_admin %}
         <div class="nav-section-label">Data</div>
+        <a href="{% url 'colleges' %}" class="nav-link {% if request.resolver_match.url_name == 'colleges' or request.resolver_match.url_name == 'college_add' or request.resolver_match.url_name == 'college_edit' %}active{% endif %}">
+            <i class="bi bi-buildings"></i> Colleges
+        </a>
+        <a href="{% url 'departments' %}" class="nav-link {% if request.resolver_match.url_name == 'departments' or request.resolver_match.url_name == 'department_add' or request.resolver_match.url_name == 'department_edit' %}active{% endif %}">
+            <i class="bi bi-diagram-3"></i> Departments
+        </a>
         <a href="{% url 'lecturers' %}" class="nav-link {% if request.resolver_match.url_name == 'lecturers' or request.resolver_match.url_name == 'lecturer_add' or request.resolver_match.url_name == 'lecturer_edit' %}active{% endif %}">
             <i class="bi bi-person-badge"></i> Lecturers
         </a>
@@ -1413,6 +1454,17 @@
             <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
         </div>
         <div class="topbar-user">
+            {% comment %}
+            A count with no number when there is nothing waiting: an empty bell
+            is quieter than a zero, and the label still says which it is.
+            {% endcomment %}
+            <a href="{% url 'notifications' %}" class="topbar-bell{% if request.resolver_match.url_name == 'notifications' %} active{% endif %}"
+               aria-label="{% if unread_notifications %}Notifications, {{ unread_notifications }} unread{% else %}Notifications{% endif %}">
+                <i class="bi bi-bell" aria-hidden="true"></i>
+                {% if unread_notifications %}
+                <span class="bell-count">{{ unread_notifications }}</span>
+                {% endif %}
+            </a>
             <div class="user-avatar">{{ avatar_initial }}</div>
             <span class="topbar-username">
                 {{ display_name }}

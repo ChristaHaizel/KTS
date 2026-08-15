@@ -23,7 +23,37 @@ import io
 import re
 from datetime import datetime
 
-from .models import DAY_CHOICES, Course, Lecturer, Room, Student, StudentGroup, TimeSlot
+from .models import (
+    DAY_CHOICES, Course, Department, Lecturer, Room, Student, StudentGroup,
+    TimeSlot,
+)
+
+
+def match_department(programme, departments):
+    """The department a programme names, if this system has one.
+
+    A roster writes "BSc Computer Science" where the department is called
+    Computer Science, so the department name is looked for inside the
+    programme rather than compared to it. Longest first, so "Computer
+    Science" is preferred over a department called "Science" that happens to
+    be a substring of it.
+    """
+    if not programme:
+        return None
+    text = programme.lower()
+    for name, department in departments:
+        if name in text:
+            return department
+    return None
+
+
+def department_lookup():
+    """Departments, longest name first, ready for match_department."""
+    return sorted(
+        ((d.name.lower(), d) for d in Department.objects.select_related('college')),
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
 
 # Excel writes UTF-8 with a byte-order mark, which would otherwise turn the
 # first header into "﻿name" and fail every lookup against it.
@@ -391,6 +421,10 @@ def _import_students(rows, result):
         .values_list('index_number', flat=True)
     )
 
+    # bulk_create and bulk_update do not call save(), so the rule that a
+    # programme follows its department has to be applied here as well as there.
+    departments = department_lookup()
+
     to_create, to_update = [], []
     claimed = set()
     for key, r in wanted.items():
@@ -410,17 +444,28 @@ def _import_students(rows, result):
         index_value = index_number or None
         group = groups.get(r['group_name'].lower()) if r['group_name'] else None
 
+        # A programme the system knows as a department becomes that
+        # department, and the text settles on the department's own name so the
+        # two cannot disagree. A programme it does not recognise is kept as
+        # written - the roster is still right, this system is just missing a
+        # department for it.
+        department = match_department(r['programme'], departments)
+        programme = department.name if department else r['programme']
+        college = department.college if department else None
+
         found = existing.get(key)
         if found is None:
             to_create.append(Student(
                 student_id=r['student_id'], name=r['name'], email=r['email'],
-                programme=r['programme'], level=r['level'],
-                group=group, index_number=index_value,
+                programme=programme, level=r['level'], department=department,
+                college=college, group=group, index_number=index_value,
             ))
         else:
             found.name = r['name']
             found.email = r['email']
-            found.programme = r['programme']
+            found.programme = programme
+            found.department = department
+            found.college = college
             found.level = r['level']
             found.group = group
             # Only overwrite an index number when the file supplies a usable
@@ -431,7 +476,8 @@ def _import_students(rows, result):
             to_update.append(found)
 
     _apply(Student, to_create, to_update,
-           ['name', 'email', 'programme', 'level', 'group', 'index_number'], result)
+           ['name', 'email', 'programme', 'department', 'college', 'level',
+            'group', 'index_number'], result)
 
 
 def _import_timeslots(rows, result):

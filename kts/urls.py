@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, include, reverse_lazy
 from django.contrib.auth import views as auth_views
 
+from scheduler import auth_views as kts_auth
+
 # Django's own reset views, pointed at templates that match the rest of the app.
 # They are used rather than reimplemented because they already do the parts that
 # are easy to get wrong: a signed, single-use, expiring token, and answering the
@@ -10,7 +12,15 @@ from django.contrib.auth import views as auth_views
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('scheduler.urls')),
-    path('login/', auth_views.LoginView.as_view(template_name='scheduler/login.html'), name='login'),
+    # Three doors, one per audience, so each page can be written for the people
+    # arriving at it. /login/ stays as the way in for anyone who has not been
+    # told which is theirs - and as the name every {% url %} and login_required
+    # redirect already points at.
+    path('login/', kts_auth.login_chooser, name='login'),
+    path('student/login/', kts_auth.StudentLoginView.as_view(), name='student_login'),
+    path('lecturer/login/', kts_auth.LecturerLoginView.as_view(), name='lecturer_login'),
+    path('office/login/', kts_auth.AdminLoginView.as_view(), name='admin_login'),
+    path('student/activate/', kts_auth.activate_student, name='student_activate'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
 
     path(

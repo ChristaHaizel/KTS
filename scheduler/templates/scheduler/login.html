@@ -87,19 +87,53 @@
         </div>
     </div>
     <div class="login-right">
-        <h4>Welcome back</h4>
-        <div class="sub">Sign in to manage your timetable</div>
+        {% comment %}
+        One template, three doors. What changes is who is being addressed and
+        what they are asked for - a student knows their student ID and may not
+        know they have a username; a lecturer has no student ID at all.
+        {% endcomment %}
+        {% if door == 'student' %}
+            <h4>Student sign in</h4>
+            <div class="sub">Use your student ID or your email address</div>
+        {% elif door == 'lecturer' %}
+            <h4>Lecturer sign in</h4>
+            <div class="sub">Your teaching, and requests to move a class</div>
+        {% else %}
+            <h4>Timetable office</h4>
+            <div class="sub">Manage data and generate the timetable</div>
+        {% endif %}
+
+        {% if messages %}
+            {% for message in messages %}
+            <div class="alert login-alert">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
         {% if form.errors %}
             <div class="alert login-alert">
-                Invalid username or password. Please try again.
+                {% for error in form.non_field_errors %}
+                    {{ error }}
+                {% empty %}
+                    {% if door == 'student' %}
+                        We could not sign you in. Check your student ID or email
+                        and your password.
+                    {% else %}
+                        Invalid username or password. Please try again.
+                    {% endif %}
+                {% endfor %}
             </div>
         {% endif %}
         <form method="post" data-busy>
             {% csrf_token %}
             <div class="mb-3">
-                <label class="form-label" for="id_username">Username</label>
+                {% if door == 'student' %}
+                <label class="form-label" for="id_username">Student ID or email</label>
                 <input type="text" name="username" id="id_username" class="form-control"
-                       autofocus placeholder="Username or student ID">
+                       autofocus placeholder="e.g. 20212007">
+                {% else %}
+                <label class="form-label" for="id_username">Username or email</label>
+                <input type="text" name="username" id="id_username" class="form-control"
+                       autofocus placeholder="Username or email">
+                {% endif %}
             </div>
             <div class="mb-4">
                 <label class="form-label" for="id_password">Password</label>
@@ -117,6 +151,14 @@
                 <span class="btn-label">Sign In</span>
             </button>
         </form>
+
+        <div class="auth-footer">
+            {% if door == 'student' %}
+            First time here?
+            <a href="{% url 'student_activate' %}">Set up your account</a><br>
+            {% endif %}
+            <a href="{% url 'login' %}">Not a {% if door == 'admin' %}timetable office{% else %}{{ door }}{% endif %} account?</a>
+        </div>
     </div>
 </div>
 {% endblock %}

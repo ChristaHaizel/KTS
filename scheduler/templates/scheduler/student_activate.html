@@ -1,0 +1,89 @@
+{% extends 'scheduler/auth_base.html' %}
+{% load static %}
+{% block title %}Set up your account - KTS{% endblock %}
+{% block extra_css %}
+        .auth-card.wide { max-width: 520px; }
+        .field-error { color: var(--danger); font-size: 0.8rem; margin-top: 4px; }
+        .form-row { display: flex; gap: var(--sp-3); }
+        .form-row > * { flex: 1; min-width: 0; }
+        @media (max-width: 520px) { .form-row { flex-direction: column; } }
+{% endblock %}
+{% block body %}
+<div class="auth-card wide">
+    <div class="auth-icon"><i class="bi bi-mortarboard"></i></div>
+    <h4>Set up your account</h4>
+    <p class="auth-lede">
+        You are already on the timetable. This attaches a sign-in to the record
+        the timetable office holds for you, and emails you a password.
+    </p>
+
+    {% if form.non_field_errors %}
+    <div class="alert login-alert">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" data-busy>
+        {% csrf_token %}
+
+        <div class="mb-3">
+            <label class="form-label" for="id_college">College</label>
+            {{ form.college }}
+            {% if form.college.errors %}
+            <div class="field-error">{{ form.college.errors|join:", " }}</div>
+            {% endif %}
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" for="id_department">Department</label>
+            {{ form.department }}
+            <div class="form-hint mt-1">{{ form.department.help_text }}</div>
+            {% if form.department.errors %}
+            <div class="field-error">{{ form.department.errors|join:", " }}</div>
+            {% endif %}
+        </div>
+
+        <div class="form-row mb-3">
+            <div>
+                <label class="form-label" for="id_student_id">Student ID</label>
+                {{ form.student_id }}
+                {% if form.student_id.errors %}
+                <div class="field-error">{{ form.student_id.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div>
+                <label class="form-label" for="id_index_number">Index number</label>
+                {{ form.index_number }}
+                {% if form.index_number.errors %}
+                <div class="field-error">{{ form.index_number.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="form-hint mb-3">{{ form.index_number.help_text }}</div>
+
+        <div class="mb-4">
+            <label class="form-label" for="id_email">Email address</label>
+            {{ form.email }}
+            <div class="form-hint mt-1">{{ form.email.help_text }}</div>
+            {% if form.email.errors %}
+            <div class="field-error">{{ form.email.errors|join:", " }}</div>
+            {% endif %}
+        </div>
+
+        <button type="submit" class="btn-login" data-busy-label="Setting up...">
+            <span class="btn-spinner" aria-hidden="true"></span>
+            <span class="btn-label">Create my account</span>
+        </button>
+    </form>
+
+    <div class="auth-footer">
+        <a href="{% url 'student_login' %}"><i class="bi bi-arrow-left me-1"></i>Already have an account?</a>
+    </div>
+</div>
+
+{% comment %}
+Narrows the department list to the chosen college. Shared with the admin's
+student form, which has the same pair of dropdowns.
+{% endcomment %}
+<script src="{% static 'scheduler/department-filter.js' %}"></script>
+{% endblock %}

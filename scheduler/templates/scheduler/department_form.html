@@ -1,0 +1,43 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}{% if department %}Edit Department{% else %}Add Department{% endif %} - KTS{% endblock %}
+{% block page_title %}{% if department %}Edit Department{% else %}Add Department{% endif %}{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title">
+                <i class="bi bi-diagram-3"></i>
+                {% if department %}Edit {{ department.name }}{% else %}New Department{% endif %}
+            </div>
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label" for="id_name">Department name</label>
+                    {{ form.name }}
+                    <div class="form-hint small mt-1">{{ form.name.help_text }}</div>
+                    {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-4">
+                    <label class="form-label" for="id_college">College</label>
+                    {{ form.college }}
+                    {% if form.college.errors %}<div class="text-danger small mt-1">{{ form.college.errors|join:", " }}</div>{% endif %}
+                </div>
+                {% if department and department.student_count %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Renaming this changes the programme shown for
+                    {{ department.student_count }} student(s), because a
+                    programme and a department are the same thing here.
+                </div>
+                {% endif %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-kts-primary flex-fill">
+                        <i class="bi bi-check-lg me-1"></i> {% if department %}Save Changes{% else %}Add Department{% endif %}
+                    </button>
+                    <a href="{% url 'departments' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

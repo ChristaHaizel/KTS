@@ -113,6 +113,49 @@ class StudentGroup(models.Model):
     def __str__(self):
         return self.name
 
+
+class College(models.Model):
+    """A faculty of the university, above the departments that sit in it.
+
+    Kept as records rather than a list in the code so the timetable office can
+    correct a name or add a department without waiting for a deploy.
+    """
+    name = models.CharField(max_length=120, unique=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class Department(models.Model):
+    """A department, which is also what a student's programme is.
+
+    The two words meant the same thing here all along - "BSc Computer Science"
+    as a programme is the Department of Computer Science - so this is the one
+    record and Student.programme follows it.
+    """
+    name = models.CharField(max_length=120)
+    college = models.ForeignKey(
+        College, on_delete=models.CASCADE, related_name='departments',
+    )
+
+    class Meta:
+        ordering = ['college__name', 'name']
+        constraints = [
+            # Two colleges may each have a Department of Mathematics; one
+            # college may not have two.
+            models.UniqueConstraint(
+                fields=['college', 'name'],
+                name='unique_department_per_college',
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class Student(models.Model):
     LEVELS = [
         ('100', 'Level 100'), ('200', 'Level 200'), ('300', 'Level 300'),
@@ -121,6 +164,10 @@ class Student(models.Model):
 
     # The student ID is the credential: an account created for a student uses it
     # as the username, so they sign in with the number they already know.
+    #
+    # It is also sequential, which is why activation asks for the index number
+    # as well. A student ID on its own can be guessed from a classmate's, and
+    # activation ends with a password being emailed somewhere.
     student_id = models.CharField(max_length=20, unique=True)
     # A separate identifier a student also carries, used on exam scripts. Unique
     # where given, but nullable, because not every record will have one to hand -
@@ -136,9 +183,23 @@ class Student(models.Model):
         blank=True,
         help_text='Used only to send a password reset link.',
     )
+    # Programme and department are the same thing under two names, so there is
+    # one record - the Department - and this text follows it. It stays a field
+    # rather than becoming a property because it is what the CSV import writes,
+    # what the students page shows, and what search matches on; and because a
+    # roster can name a programme this system has no department for yet.
+    college = models.ForeignKey(
+        College, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='students',
+    )
+    department = models.ForeignKey(
+        Department, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='students',
+    )
     programme = models.CharField(
         max_length=120, blank=True,
-        help_text='For example, BSc Computer Science.',
+        help_text='For example, BSc Computer Science. Set from the department '
+                  'where there is one.',
     )
     level = models.CharField(max_length=10, choices=LEVELS, blank=True)
     # Descriptive fields above; this is the one that does work. The timetable is
@@ -169,6 +230,18 @@ class Student(models.Model):
         # honest representation of "no index number on file".
         if not self.index_number:
             self.index_number = None
+        # One name for one thing. Assigning a department is the act of setting
+        # the programme, and letting them disagree would put one answer on the
+        # students page and another on the student's own account.
+        #
+        # The college follows too, and unconditionally: a department sits in
+        # exactly one college, so there is no version of this where a student
+        # is in a department and a college that does not contain it. Filling it
+        # in only when blank left students behind in the old college when a
+        # department was moved between them.
+        if self.department_id is not None:
+            self.programme = self.department.name
+            self.college_id = self.department.college_id
         super().save(*args, **kwargs)
 
     @property

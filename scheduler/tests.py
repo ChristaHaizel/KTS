@@ -21,6 +21,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from django.test.utils import CaptureQueriesContext
 
 from . import charts
@@ -42,8 +43,8 @@ from .genetic_algorithm import (
     count_violations, fitness, load_problem, run_genetic_algorithm,
 )
 from .models import (
-    Course, GenerationRun, Lecturer, Notification, RescheduleRequest, Room,
-    Student, StudentGroup, TimeSlot, TimetableEntry,
+    College, Course, Department, GenerationRun, Lecturer, Notification,
+    RescheduleRequest, Room, Student, StudentGroup, TimeSlot, TimetableEntry,
 )
 from .permissions import ADMIN_GROUP, is_admin, lecturer_for, student_for
 
@@ -2173,10 +2174,14 @@ class PasswordResetTests(TestCase):
         self.assertIsNotNone(match, f'no reset link in the email:\n{body}')
         return match.group(0)
 
-    def test_the_login_page_offers_the_link(self):
-        response = self.client.get('/login/')
-        self.assertContains(response, 'Forgot your password?')
-        self.assertContains(response, '/password-reset/')
+    def test_every_sign_in_page_offers_the_link(self):
+        """One door per audience, and a forgotten password is not one of the
+        things that varies between them."""
+        for url in ['/student/login/', '/lecturer/login/', '/office/login/']:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertContains(response, 'Forgot your password?')
+                self.assertContains(response, '/password-reset/')
 
     def test_the_request_page_renders(self):
         self.assertEqual(self.client.get('/password-reset/').status_code, 200)
@@ -2448,8 +2453,10 @@ class PasswordToggleTests(TestCase):
         self.assertEqual(body.count('class="password-toggle"'), expected)
         self.assertIn('password-toggle.js', body)
 
-    def test_sign_in_has_one(self):
-        self._check(self.client.get('/login/').content.decode(), 1)
+    def test_every_sign_in_door_has_one(self):
+        for url in ['/student/login/', '/lecturer/login/', '/office/login/']:
+            with self.subTest(url=url):
+                self._check(self.client.get(url).content.decode(), 1)
 
     def test_my_account_has_one_on_each_of_its_three(self):
         self.client.force_login(self.student.user)
@@ -2641,6 +2648,350 @@ class EnvironmentSettingTests(SimpleTestCase):
         self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
 
 
+class CollegeDepartmentTests(TestCase):
+    """Colleges and departments are records, not a list in the code.
+
+    A department is also what a student's programme is, so the two have to
+    stay one answer: renaming a department renames the programme of everyone
+    on it.
+    """
+
+    def setUp(self):
+        self.client.force_login(make_admin())
+        self.science = College.objects.get(name='College of Science')
+        self.cs = Department.objects.get(name='Computer Science',
+                                         college=self.science)
+
+    def test_the_migration_seeded_the_university(self):
+        """A student cannot set up an account with nothing to choose from."""
+        self.assertEqual(College.objects.count(), 6)
+        self.assertTrue(Department.objects.filter(name='Computer Science').exists())
+
+    def test_the_pages_are_reachable(self):
+        for url in ['/colleges/', '/colleges/add/', '/departments/',
+                    '/departments/add/',
+                    f'/colleges/{self.science.pk}/edit/',
+                    f'/departments/{self.cs.pk}/edit/',
+                    f'/colleges/{self.science.pk}/delete/',
+                    f'/departments/{self.cs.pk}/delete/']:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_they_are_in_the_sidebar(self):
+        body = self.client.get('/').content.decode()
+        self.assertIn('/colleges/', body)
+        self.assertIn('/departments/', body)
+
+    def test_a_student_cannot_reach_them(self):
+        student = Student.objects.create(student_id='20512001', name='Ama')
+        create_student_account(student)
+        student.refresh_from_db()
+        self.client.force_login(student.user)
+        for url in ['/colleges/', '/departments/']:
+            with self.subTest(url=url):
+                self.assertNotEqual(self.client.get(url).status_code, 200)
+
+    def test_renaming_a_department_renames_the_programme_of_its_students(self):
+        """Otherwise the students page says one thing and the student's own
+        account says another."""
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', department=self.cs)
+        student.refresh_from_db()
+        self.assertEqual(student.programme, 'Computer Science')
+
+        self.client.post(f'/departments/{self.cs.pk}/edit/', {
+            'name': 'Computer Science and Engineering',
+            'college': self.science.pk,
+        })
+
+        student.refresh_from_db()
+        self.assertEqual(student.programme, 'Computer Science and Engineering')
+
+    def test_moving_a_department_moves_its_students_college(self):
+        engineering = College.objects.get(name='College of Engineering')
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', department=self.cs)
+
+        self.client.post(f'/departments/{self.cs.pk}/edit/', {
+            'name': 'Computer Science', 'college': engineering.pk,
+        })
+
+        student.refresh_from_db()
+        self.assertEqual(student.college, engineering)
+
+    def test_two_colleges_may_each_have_a_department_of_the_same_name(self):
+        engineering = College.objects.get(name='College of Engineering')
+        Department.objects.create(name='Mathematics', college=engineering)
+        self.assertEqual(Department.objects.filter(name='Mathematics').count(), 2)
+
+    def test_one_college_may_not_have_two(self):
+        with self.assertRaises(Exception):
+            Department.objects.create(name='Computer Science', college=self.science)
+
+    def test_deleting_a_department_leaves_the_students_programme_alone(self):
+        """The roster said what they study. Losing the department here is our
+        problem, not a reason to forget it."""
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', department=self.cs)
+        self.client.post(f'/departments/{self.cs.pk}/delete/')
+
+        student.refresh_from_db()
+        self.assertIsNone(student.department)
+        self.assertEqual(student.programme, 'Computer Science')
+
+
+class NotificationPlacementTests(TestCase):
+    """Notifications sit with the account they belong to, not with the
+    sections of the app."""
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.client.force_login(self.admin)
+
+    def test_the_bell_is_in_the_topbar(self):
+        body = self.client.get('/').content.decode()
+        self.assertIn('topbar-bell', body)
+        # And no longer among the sidebar's sections.
+        sidebar = body.split('<div class="main-wrap">')[0]
+        self.assertNotIn('/notifications/', sidebar)
+
+    def test_it_counts_only_what_is_unread(self):
+        Notification.objects.create(user=self.admin, message='one')
+        Notification.objects.create(user=self.admin, message='two',
+                                    read_at=timezone.now())
+        body = self.client.get('/').content.decode()
+        self.assertIn('class="bell-count"', body)
+        self.assertIn('>1<', body)
+
+    def test_nothing_waiting_shows_no_number(self):
+        """An empty bell is quieter than a zero.
+
+        Matched on the attribute rather than the bare word: the class is
+        defined in the stylesheet, which is on every page, so the bare word
+        would be found whatever the markup did.
+        """
+        body = self.client.get('/').content.decode()
+        self.assertNotIn('class="bell-count"', body)
+
+    def test_the_page_is_still_there(self):
+        self.assertEqual(self.client.get('/notifications/').status_code, 200)
+
+
+class SignInDoorTests(TestCase):
+    """One sign-in page per audience.
+
+    The doors are not a security measure - anyone can find the other two - so
+    nothing here depends on them being secret. What they have to do is be
+    written for whoever arrives, and refuse an account that belongs somewhere
+    else rather than dropping it on a dashboard built for someone different.
+    """
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.admin.set_password('office-pass-9931')
+        self.admin.save()
+
+        self.lecturer = Lecturer.objects.create(name='Dr Mensah', email='m@knust.edu.gh')
+        self.lecturer.user = User.objects.create_user('mensah', 'm@knust.edu.gh',
+                                                      'lecturer-pass-9931')
+        self.lecturer.save()
+
+        self.student = Student.objects.create(
+            student_id='20512001', index_number='7512001', name='Ama',
+            email='ama@st.knust.edu.gh')
+        create_student_account(self.student)
+        self.student.refresh_from_db()
+        self.student.user.set_password('student-pass-9931')
+        self.student.user.save()
+
+    def test_the_chooser_offers_all_three(self):
+        body = self.client.get('/login/').content.decode()
+        for url in ['/student/login/', '/lecturer/login/', '/office/login/']:
+            with self.subTest(url=url):
+                self.assertIn(url, body)
+
+    def test_each_door_speaks_to_its_own_audience(self):
+        """A lecturer has no student ID, so asking for one is worse than
+        useless - it suggests they are in the wrong place."""
+        student_page = self.client.get('/student/login/').content.decode()
+        self.assertIn('Student ID or email', student_page)
+
+        office_page = self.client.get('/office/login/').content.decode()
+        self.assertNotIn('Student ID or email', office_page)
+
+    def _sign_in(self, door, username, password):
+        return self.client.post(door, {'username': username, 'password': password})
+
+    def test_each_role_gets_in_at_its_own_door(self):
+        cases = [
+            ('/student/login/', '20512001', 'student-pass-9931'),
+            ('/lecturer/login/', 'mensah', 'lecturer-pass-9931'),
+            ('/office/login/', self.admin.username, 'office-pass-9931'),
+        ]
+        for door, username, password in cases:
+            with self.subTest(door=door):
+                self.client.logout()
+                response = self._sign_in(door, username, password)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.url, '/')
+
+    def test_the_wrong_door_sends_you_to_the_right_one(self):
+        """Refusing outright would be unhelpful, and letting them through
+        would land a student on the timetable office's dashboard."""
+        cases = [
+            ('/office/login/', '20512001', 'student-pass-9931', '/student/login/'),
+            ('/student/login/', self.admin.username, 'office-pass-9931', '/office/login/'),
+            ('/student/login/', 'mensah', 'lecturer-pass-9931', '/lecturer/login/'),
+        ]
+        for door, username, password, expected in cases:
+            with self.subTest(door=door, username=username):
+                self.client.logout()
+                response = self._sign_in(door, username, password)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.url, expected)
+
+    def test_the_wrong_door_does_not_leave_you_signed_in(self):
+        """Being bounced has to mean not signed in, or the redirect is a
+        cosmetic detour around the check it exists to make."""
+        self._sign_in('/office/login/', '20512001', 'student-pass-9931')
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_an_account_with_no_role_is_told_so(self):
+        User.objects.create_user('nobody', 'n@e.com', 'nobody-pass-9931')
+        response = self._sign_in('/student/login/', 'nobody', 'nobody-pass-9931')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no role yet', response.content.decode())
+
+    def test_signing_in_with_an_email_instead(self):
+        response = self._sign_in('/student/login/', 'ama@st.knust.edu.gh',
+                                 'student-pass-9931')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/')
+
+    def test_an_email_shared_by_two_accounts_signs_in_neither(self):
+        """Guessing which of two people meant to sign in is not something to
+        do quietly."""
+        User.objects.create_user('twin', 'ama@st.knust.edu.gh', 'student-pass-9931')
+        response = self._sign_in('/student/login/', 'ama@st.knust.edu.gh',
+                                 'student-pass-9931')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_the_chooser_carries_where_you_were_going(self):
+        """login_required sends people here mid-journey."""
+        body = self.client.get('/login/?next=/timetable/').content.decode()
+        self.assertIn('next=%2Ftimetable%2F', body)
+
+    def test_a_protected_page_still_sends_you_to_sign_in(self):
+        response = self.client.get('/timetable/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+
+class StudentActivationTests(TestCase):
+    """A student claiming the record the timetable office already holds.
+
+    Nothing is created that was not on the roster first. The claim check is
+    the security: student IDs run in sequence, so one can be guessed from a
+    classmate's, and this ends with a password being emailed to whatever
+    address was typed in.
+    """
+
+    def setUp(self):
+        self.college = College.objects.get(name='College of Science')
+        self.department = Department.objects.get(name='Computer Science',
+                                                 college=self.college)
+        self.student = Student.objects.create(
+            student_id='20212099', index_number='7212099', name='Yaa Boateng')
+
+    def _activate(self, **overrides):
+        payload = {
+            'college': self.college.pk,
+            'department': self.department.pk,
+            'student_id': '20212099',
+            'index_number': '7212099',
+            'email': 'yaa@st.knust.edu.gh',
+        }
+        payload.update(overrides)
+        return self.client.post('/student/activate/', payload)
+
+    def test_it_attaches_an_account_to_the_roster_record(self):
+        response = self._activate()
+        self.assertEqual(response.status_code, 200)
+
+        self.student.refresh_from_db()
+        self.assertIsNotNone(self.student.user)
+        self.assertEqual(self.student.user.username, '20212099')
+        self.assertEqual(self.student.email, 'yaa@st.knust.edu.gh')
+        self.assertEqual(self.student.department, self.department)
+        self.assertEqual(self.student.college, self.college)
+
+    def test_the_programme_follows_the_department(self):
+        self._activate()
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.programme, 'Computer Science')
+
+    def test_the_password_is_emailed_to_them(self):
+        self._activate()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['yaa@st.knust.edu.gh'])
+        self.assertIn('20212099', mail.outbox[0].body)
+
+    def test_the_emailed_password_is_the_one_that_works(self):
+        self._activate()
+        password = re.search(r'Password:\s+(\S+)', mail.outbox[0].body).group(1)
+        self.student.refresh_from_db()
+        self.assertTrue(self.student.user.check_password(password))
+
+    def test_a_guessed_student_id_gets_nowhere_without_the_index_number(self):
+        """The whole point of asking for two numbers."""
+        response = self._activate(index_number='0000000',
+                                  email='attacker@example.com')
+        self.assertEqual(response.status_code, 200)
+        self.student.refresh_from_db()
+        self.assertIsNone(self.student.user)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertNotEqual(self.student.email, 'attacker@example.com')
+
+    def test_an_unknown_student_id_is_refused_the_same_way(self):
+        """Telling the two apart would turn this into a way of discovering
+        which student IDs exist, one guess at a time."""
+        unknown = self._activate(student_id='99999999')
+        wrong_index = self._activate(index_number='0000000')
+        self.assertEqual(
+            re.findall(r'could not match those details', unknown.content.decode()),
+            re.findall(r'could not match those details', wrong_index.content.decode()),
+        )
+
+    def test_a_student_who_already_has_an_account_is_sent_to_sign_in(self):
+        self._activate()
+        mail.outbox.clear()
+        response = self._activate()
+        self.assertIn('already has an account', response.content.decode())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_department_from_another_college_is_refused(self):
+        other = College.objects.exclude(pk=self.college.pk).first()
+        response = self._activate(college=other.pk)
+        self.assertIn('not in that college', response.content.decode())
+        self.student.refresh_from_db()
+        self.assertIsNone(self.student.user)
+
+    def test_the_account_survives_the_email_failing(self):
+        """The account exists by then. Sending them back to the form would
+        only tell them the record is already taken."""
+        with mock.patch('scheduler.auth_views.send_mail',
+                        side_effect=OSError('mail server down')):
+            response = self._activate()
+        self.student.refresh_from_db()
+        self.assertIsNotNone(self.student.user)
+        self.assertIn('did not send', response.content.decode())
+
+    def test_it_is_reachable_from_the_student_door(self):
+        self.assertIn('/student/activate/',
+                      self.client.get('/student/login/').content.decode())
+
+
 class SecondSubmissionTests(TestCase):
     """Pressing "Set password" twice told people the opposite of what happened.
 
@@ -2710,7 +3061,8 @@ class SecondSubmissionTests(TestCase):
         self.user.email = 'ama@st.knust.edu.gh'
         self.user.save()
 
-        pages = ['/login/', '/password-reset/', self._form_url()]
+        pages = ['/student/login/', '/lecturer/login/', '/office/login/',
+                 '/student/activate/', '/password-reset/', self._form_url()]
         for url in pages:
             with self.subTest(url=url):
                 self.assertIn('data-busy', self.client.get(url).content.decode())
@@ -3757,17 +4109,21 @@ class StudentFieldTests(TestCase):
         self.client.force_login(make_admin('fieldadmin'))
 
     def test_all_four_are_stored_separately(self):
+        """Programme is no longer typed: a department is what sets it."""
+        department = Department.objects.get(name='Computer Science')
         self.client.post('/students/add/', {
             'student_id': '20212007',
             'index_number': '7212007',
             'name': 'Adjoa Mensimah',
-            'programme': 'BSc Computer Science',
+            'college': department.college.pk,
+            'department': department.pk,
             'level': '400',
             'group': self.group.pk,
         })
         student = Student.objects.get(student_id='20212007')
         self.assertEqual(student.index_number, '7212007')
-        self.assertEqual(student.programme, 'BSc Computer Science')
+        self.assertEqual(student.department, department)
+        self.assertEqual(student.programme, 'Computer Science')
         self.assertEqual(student.level, '400')
         self.assertEqual(student.group, self.group)
 
@@ -3818,15 +4174,34 @@ class StudentFieldTests(TestCase):
 
 class StudentImportFieldTests(TestCase):
     def test_the_new_columns_import(self):
+        """A programme this system knows as a department becomes it.
+
+        The roster writes "BSc Computer Science"; the department is called
+        Computer Science; they are the same thing, so the import settles on
+        the department's own name rather than leaving two spellings of one
+        answer in the database.
+        """
         result = run_import('students', csv_upload(
             'student_id,index_number,name,programme,level,group\n'
             '20212007,7212007,Adjoa,BSc Computer Science,400,CS Level 400\n'))
         self.assertEqual(result.created, 1)
         student = Student.objects.get()
         self.assertEqual(student.index_number, '7212007')
-        self.assertEqual(student.programme, 'BSc Computer Science')
+        self.assertEqual(student.department.name, 'Computer Science')
+        self.assertEqual(student.college.name, 'College of Science')
+        self.assertEqual(student.programme, 'Computer Science')
         self.assertEqual(student.level, '400')
         self.assertEqual(student.group.name, 'CS Level 400')
+
+    def test_a_programme_with_no_department_is_kept_as_written(self):
+        """The roster is still right; this system is only missing a department
+        for it. Rewriting or dropping it would lose what was imported."""
+        result = run_import('students', csv_upload(
+            'student_id,name,programme\n20212008,Kofi,BA Akan Studies\n'))
+        self.assertEqual(result.created, 1)
+        student = Student.objects.get(student_id='20212008')
+        self.assertIsNone(student.department)
+        self.assertEqual(student.programme, 'BA Akan Studies')
 
     def test_index_number_is_not_mistaken_for_the_student_id(self):
         """They are different numbers, so "Index Number" must not fill student_id."""

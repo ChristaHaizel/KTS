@@ -1,0 +1,38 @@
+{% extends 'scheduler/base.html' %}
+{% block title %}Delete College - KTS{% endblock %}
+{% block page_title %}Delete College{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="kts-card">
+            <div class="kts-card-title danger">
+                <i class="bi bi-exclamation-triangle"></i> Delete {{ college.name }}?
+            </div>
+            <p class="card-lede">
+                This permanently removes <strong>{{ college.name }}</strong> and
+                every department in it. This cannot be undone.
+            </p>
+            {% if college.departments.exists %}
+            <div class="impact-panel">
+                <div class="impact-title">What else goes</div>
+                <ul class="impact-list">
+                    {% for department in college.departments.all %}
+                    <li>{{ department.name }} - {{ department.students.count }} student(s)
+                        would lose their department and keep their programme text</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn-danger-kts">
+                        <i class="bi bi-trash me-1"></i> Delete College
+                    </button>
+                    <a href="{% url 'colleges' %}" class="btn btn-kts-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -91,6 +91,49 @@ TEMPLATES = [
 WSGI_APPLICATION = 'kts.wsgi.application'
 
 
+# Reading settings out of the environment. Defined up here because the
+# database configuration below is the first thing that needs them.
+def _env_int(name, default):
+    """Read a whole number from the environment, tolerating an empty value.
+
+    A dashboard makes it easy to add a key and save before typing the value,
+    or to clear one while leaving it in place. int('') raises, and because
+    this runs while the settings module is still being imported, that failure
+    takes down every page on the site rather than the one feature the setting
+    belongs to - a bare "Internal Server Error" everywhere, with the cause
+    nowhere near it. An absent value and a blank one mean the same thing here.
+    """
+    raw = (os.environ.get(name) or '').strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f'{name} must be a whole number, or left unset to use {default}. '
+            f'It is currently {raw!r}.'
+        ) from None
+
+
+def _env_bool(name, default):
+    """Read a flag, treating an empty value as absent for the same reason.
+
+    Comparing against 'True' would quietly read a blank as False, which for
+    EMAIL_USE_TLS means silently dropping TLS rather than reporting anything.
+    """
+    raw = (os.environ.get(name) or '').strip().lower()
+    if not raw:
+        return default
+    if raw in ('true', '1', 'yes', 'on'):
+        return True
+    if raw in ('false', '0', 'no', 'off'):
+        return False
+    raise RuntimeError(
+        f'{name} must be true or false, or left unset to use {default}. '
+        f'It is currently {raw!r}.'
+    )
+
+
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
@@ -124,9 +167,26 @@ if DATABASE_URL and not re.match(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://', DATABASE_URL):
 DATABASES = {
     'default': dj_database_url.parse(
         DATABASE_URL or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+        # Keep connections between requests, rather than paying to open one
+        # every time. On its own that is a trap here: a serverless database
+        # suspends itself after a few minutes of no traffic and drops what is
+        # open, so the next request picks up a connection that looks fine and
+        # is already dead - a server error on whatever page someone happened to
+        # arrive at, and only ever the first one after a quiet spell. The health
+        # check spends one cheap round trip confirming the connection is alive
+        # and quietly reopens it if not.
         conn_max_age=600,
+        conn_health_checks=True,
     )
 }
+
+# Waking a suspended database takes a moment; hanging on it until the host
+# gives up on the whole request does not help anyone. Postgres only - SQLite
+# does not know this option, and rejects what it does not know.
+if DATABASES['default']['ENGINE'].endswith('postgresql'):
+    DATABASES['default'].setdefault('OPTIONS', {})
+    DATABASES['default']['OPTIONS'].setdefault(
+        'connect_timeout', _env_int('DB_CONNECT_TIMEOUT', 10))
 
 
 # Password validation
@@ -189,47 +249,6 @@ STORAGES = {
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
-
-
-def _env_int(name, default):
-    """Read a whole number from the environment, tolerating an empty value.
-
-    A dashboard makes it easy to add a key and save before typing the value,
-    or to clear one while leaving it in place. int('') raises, and because
-    this runs while the settings module is still being imported, that failure
-    takes down every page on the site rather than the one feature the setting
-    belongs to - a bare "Internal Server Error" everywhere, with the cause
-    nowhere near it. An absent value and a blank one mean the same thing here.
-    """
-    raw = (os.environ.get(name) or '').strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        raise RuntimeError(
-            f'{name} must be a whole number, or left unset to use {default}. '
-            f'It is currently {raw!r}.'
-        ) from None
-
-
-def _env_bool(name, default):
-    """Read a flag, treating an empty value as absent for the same reason.
-
-    Comparing against 'True' would quietly read a blank as False, which for
-    EMAIL_USE_TLS means silently dropping TLS rather than reporting anything.
-    """
-    raw = (os.environ.get(name) or '').strip().lower()
-    if not raw:
-        return default
-    if raw in ('true', '1', 'yes', 'on'):
-        return True
-    if raw in ('false', '0', 'no', 'off'):
-        return False
-    raise RuntimeError(
-        f'{name} must be true or false, or left unset to use {default}. '
-        f'It is currently {raw!r}.'
-    )
 
 
 # Outbound mail, for password resets. Everything comes from the environment so

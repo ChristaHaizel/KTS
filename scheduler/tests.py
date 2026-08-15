@@ -2553,6 +2553,32 @@ class EnvironmentSettingTests(SimpleTestCase):
         reloaded = self._reload_settings(EMAIL_USE_SSL='true', EMAIL_USE_TLS='true')
         self.assertFalse(reloaded.EMAIL_USE_SSL and reloaded.EMAIL_USE_TLS)
 
+    def test_kept_connections_are_checked_before_they_are_reused(self):
+        """Connections are held between requests to avoid reopening one every
+        time. Against a database that suspends itself when idle - which is what
+        the free tier of a serverless Postgres does after a few minutes - that
+        means picking up a connection that looks fine and is already dead, and
+        a server error on whatever page someone happened to arrive at. Only
+        ever the first request after a quiet spell, which is why it reads as
+        random."""
+        database = self._reload_settings().DATABASES['default']
+        self.assertTrue(database.get('CONN_HEALTH_CHECKS'),
+                        'connections are reused without checking they are alive')
+
+    def test_a_sleeping_database_cannot_hang_the_request(self):
+        """Waking a suspended database takes a moment. Waiting on it until the
+        host gives up on the whole request helps nobody."""
+        database = self._reload_settings(
+            DATABASE_URL='postgresql://u:p@example.neon.tech/db').DATABASES['default']
+        self.assertLessEqual(database['OPTIONS']['connect_timeout'], 30)
+
+    def test_sqlite_is_not_given_an_option_it_will_reject(self):
+        """connect_timeout is a Postgres option; SQLite refuses what it does
+        not recognise, which would break every local run."""
+        database = self._reload_settings(DATABASE_URL='').DATABASES['default']
+        self.assertIn('sqlite', database['ENGINE'])
+        self.assertNotIn('connect_timeout', database.get('OPTIONS', {}))
+
     def test_mail_cannot_hang_longer_than_the_host_will_wait(self):
         """Render gives a request 30 seconds. A mail server that accepts the
         connection and then goes quiet would otherwise hold the worker until

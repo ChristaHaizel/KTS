@@ -358,16 +358,38 @@ def my_account(request):
         'email_form': email_form,
         'password_form': password_form,
         'previewing': previewing,
-        'mail_is_configured': (bool(settings.EMAIL_HOST)
-                               or settings.EMAIL_BACKEND.endswith('ResendBackend')),
+        'mail_is_configured': _mail_is_configured(),
         'mail_summary': _mail_settings_summary(),
         'mail_from': settings.DEFAULT_FROM_EMAIL,
-        # Resend will deliver from its own address to the account holder before
-        # any domain is verified, and to nobody else. Worth saying plainly:
-        # everything looks configured, your own test arrives, and every student
-        # is quietly refused.
-        'mail_from_is_borrowed': 'resend.dev' in settings.DEFAULT_FROM_EMAIL,
+        'mail_warning': _mail_warning(),
     })
+
+
+def _mail_is_configured():
+    return (bool(settings.EMAIL_HOST)
+            or not settings.EMAIL_BACKEND.endswith('console.EmailBackend'))
+
+
+def _mail_warning():
+    """What still stands between this and a student resetting their password.
+
+    Both of these look like success from the administrator's chair: everything
+    is configured, the test email arrives, and every student is quietly
+    refused. Worth saying out loud, next to the button that would otherwise
+    prove mail works.
+    """
+    if getattr(settings, 'MAIL_SENDER_NEEDS_SETTING', False):
+        return ('No sender address has been set, so the placeholder is being '
+                'used and every message will be refused. Set '
+                'DEFAULT_FROM_EMAIL to the address you verified with your mail '
+                'provider.')
+    if 'resend.dev' in settings.DEFAULT_FROM_EMAIL:
+        return ("This is Resend's own sending address, which only delivers to "
+                'the address that owns the Resend account. Your test will '
+                "arrive; a student's reset will not. To email anyone else, "
+                'either verify a domain in Resend, or use a provider that '
+                'verifies a single address instead.')
+    return ''
 
 
 def _mail_settings_summary():
@@ -378,6 +400,8 @@ def _mail_settings_summary():
     of a port that wants implicit SSL, most of all. Which of those matter
     depends on the road the mail takes, so only the relevant ones are shown.
     """
+    if settings.EMAIL_BACKEND.endswith('BrevoBackend'):
+        return '(Sent over the Brevo API on HTTPS, not SMTP.)'
     if settings.EMAIL_BACKEND.endswith('ResendBackend'):
         return '(Sent over the Resend API on HTTPS, not SMTP.)'
     if settings.EMAIL_BACKEND.endswith('console.EmailBackend'):

@@ -26,7 +26,10 @@ from django.test.utils import CaptureQueriesContext
 from . import charts
 from .accounts import create_student_account
 from .baselines import compare, greedy_schedule, random_schedule
-from .mail import MailDeliveryError, ResendBackend, resend_api_key
+from .mail import (
+    BrevoBackend, MailDeliveryError, ResendBackend, brevo_api_key,
+    resend_api_key,
+)
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
 from .importers import (
@@ -2540,6 +2543,32 @@ class EnvironmentSettingTests(SimpleTestCase):
             self._reload_settings(EMAIL_USE_TLS='maybe')
         self.assertIn('EMAIL_USE_TLS', str(caught.exception))
 
+    def test_a_brevo_key_picks_the_brevo_backend(self):
+        for where in ['BREVO_API_KEY', 'EMAIL_HOST_PASSWORD']:
+            with self.subTest(where=where):
+                reloaded = self._reload_settings(**{where: 'xkeysib-abc'})
+                self.assertTrue(reloaded.EMAIL_BACKEND.endswith('BrevoBackend'))
+
+    def test_brevo_wins_when_both_are_configured(self):
+        """Only Brevo delivers to a student without a domain being verified, so
+        having set it up is the intention that counts."""
+        reloaded = self._reload_settings(BREVO_API_KEY='xkeysib-abc',
+                                         RESEND_API_KEY='re_abc')
+        self.assertTrue(reloaded.EMAIL_BACKEND.endswith('BrevoBackend'))
+
+    def test_brevo_does_not_borrow_resends_sending_address(self):
+        """resend.dev works only for Resend. Brevo has no equivalent, so the
+        placeholder stands as a marker that the sender is still to be set."""
+        reloaded = self._reload_settings(BREVO_API_KEY='xkeysib-abc')
+        self.assertNotIn('resend.dev', reloaded.DEFAULT_FROM_EMAIL)
+        self.assertTrue(reloaded.MAIL_SENDER_NEEDS_SETTING)
+
+    def test_setting_the_verified_sender_clears_the_marker(self):
+        reloaded = self._reload_settings(
+            BREVO_API_KEY='xkeysib-abc',
+            DEFAULT_FROM_EMAIL='KTS <timetable@gmail.com>')
+        self.assertFalse(reloaded.MAIL_SENDER_NEEDS_SETTING)
+
     def test_resend_gets_a_from_address_it_will_actually_accept(self):
         """A provider only sends from a domain you have proved you own, so the
         placeholder is refused outright - and because a reset swallows delivery
@@ -2610,6 +2639,110 @@ class EnvironmentSettingTests(SimpleTestCase):
         connection and then goes quiet would otherwise hold the worker until
         the operating system gave up, killing the page with no explanation."""
         self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
+
+
+class BrevoBackendTests(SimpleTestCase):
+    """The provider that makes self-service resets possible without a domain.
+
+    Resend will not deliver to anyone but the account holder until a whole
+    domain is verified through DNS, which needs a domain to own. Brevo verifies
+    a single address you already have, so a student who forgets their password
+    can get a link.
+    """
+
+    def _backend(self, **kwargs):
+        kwargs.setdefault('api_key', 'xkeysib-test')
+        return BrevoBackend(**kwargs)
+
+    def _message(self):
+        return EmailMessage(
+            subject='KTS password reset',
+            body='Follow this link: https://kts.example/password-reset/a/b/',
+            from_email='KNUST Timetable System <timetable@gmail.com>',
+            to=['student@st.knust.edu.gh'],
+        )
+
+    def _posted(self, mocked):
+        return mocked.call_args[0][0]
+
+    def test_it_posts_the_message_the_way_brevo_expects(self):
+        with mock.patch('scheduler.mail.urllib.request.urlopen') as urlopen:
+            self.assertEqual(self._backend().send_messages([self._message()]), 1)
+        request = self._posted(urlopen)
+        self.assertTrue(request.full_url.startswith('https://'))
+        # Brevo authenticates on its own header, not a bearer token.
+        self.assertEqual(request.get_header('Api-key'), 'xkeysib-test')
+
+        payload = json.loads(request.data.decode())
+        self.assertEqual(payload['to'], [{'email': 'student@st.knust.edu.gh'}])
+        self.assertEqual(payload['subject'], 'KTS password reset')
+        self.assertIn('password-reset', payload['textContent'])
+
+    def test_the_sender_is_split_into_the_two_parts_brevo_wants(self):
+        """It takes a name and an address separately, not one run together."""
+        with mock.patch('scheduler.mail.urllib.request.urlopen') as urlopen:
+            self._backend().send_messages([self._message()])
+        sender = json.loads(self._posted(urlopen).data.decode())['sender']
+        self.assertEqual(sender['email'], 'timetable@gmail.com')
+        self.assertEqual(sender['name'], 'KNUST Timetable System')
+
+    def _refusing_with(self, code, message):
+        return urllib.error.HTTPError(
+            'https://api.brevo.com/v3/smtp/email', code, 'error', {},
+            io.BytesIO(json.dumps({'message': message}).encode()))
+
+    def test_an_unverified_sender_says_what_to_do_about_it(self):
+        """The one failure this provider is actually likely to hit."""
+        with mock.patch('scheduler.mail.urllib.request.urlopen',
+                        side_effect=self._refusing_with(
+                            400, 'Sender email is not valid')):
+            with self.assertRaises(MailDeliveryError) as caught:
+                self._backend().send_messages([self._message()])
+        message = str(caught.exception)
+        self.assertIn('has not been verified', message)
+        self.assertIn('DEFAULT_FROM_EMAIL', message)
+
+    def test_other_refusals_are_reported_too(self):
+        for code, advice in [(401, 'BREVO_API_KEY'),
+                             (402, 'daily limit'),
+                             (429, 'Wait a moment')]:
+            with self.subTest(code=code):
+                with mock.patch('scheduler.mail.urllib.request.urlopen',
+                                side_effect=self._refusing_with(code, 'detail')):
+                    with self.assertRaises(MailDeliveryError) as caught:
+                        self._backend().send_messages([self._message()])
+                self.assertIn(advice, str(caught.exception))
+
+    def test_a_missing_key_says_so(self):
+        with self.assertRaises(MailDeliveryError) as caught:
+            self._backend(api_key='').send_messages([self._message()])
+        self.assertIn('BREVO_API_KEY', str(caught.exception))
+
+    def test_it_stays_quiet_when_asked_to(self):
+        """A password reset sends with fail_silently, and must not become a
+        server error because mail is misconfigured."""
+        self.assertEqual(
+            self._backend(api_key='', fail_silently=True)
+            .send_messages([self._message()]), 0)
+
+    def test_the_key_is_found_where_brevos_own_instructions_put_it(self):
+        with override_settings(BREVO_API_KEY='', EMAIL_HOST_PASSWORD='xkeysib-smtp'):
+            self.assertEqual(brevo_api_key(), 'xkeysib-smtp')
+
+    def test_an_ordinary_smtp_password_is_not_mistaken_for_a_key(self):
+        with override_settings(BREVO_API_KEY='', EMAIL_HOST_PASSWORD='hunter2'):
+            self.assertEqual(brevo_api_key(), '')
+
+    def test_the_two_providers_do_not_claim_each_others_keys(self):
+        """Both read EMAIL_HOST_PASSWORD, and only one of them should answer."""
+        with override_settings(BREVO_API_KEY='', RESEND_API_KEY='',
+                               EMAIL_HOST_PASSWORD='xkeysib-brevo'):
+            self.assertEqual(brevo_api_key(), 'xkeysib-brevo')
+            self.assertEqual(resend_api_key(), '')
+        with override_settings(BREVO_API_KEY='', RESEND_API_KEY='',
+                               EMAIL_HOST_PASSWORD='re_resend'):
+            self.assertEqual(resend_api_key(), 're_resend')
+            self.assertEqual(brevo_api_key(), '')
 
 
 class ResendBackendTests(SimpleTestCase):
@@ -2852,6 +2985,39 @@ class TestEmailButtonTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ['boss@knust.edu.gh'])
         self.assertIn('Test email sent', response.content.decode())
+
+    @override_settings(EMAIL_BACKEND='scheduler.mail.BrevoBackend',
+                       MAIL_SENDER_NEEDS_SETTING=True)
+    def test_an_unset_sender_is_called_out_before_it_wastes_anyones_time(self):
+        """Everything reads as configured, and every message is refused."""
+        body = self.client.get('/account/').content.decode()
+        self.assertIn('DEFAULT_FROM_EMAIL', body)
+        self.assertIn('No sender address has been set', body)
+
+    @override_settings(EMAIL_BACKEND='scheduler.mail.ResendBackend',
+                       DEFAULT_FROM_EMAIL='KTS <onboarding@resend.dev>',
+                       MAIL_SENDER_NEEDS_SETTING=False)
+    def test_resends_shared_sender_is_called_out_as_a_dead_end_for_students(self):
+        """The trap: the administrator's own test arrives, so it all looks
+        fine, and every student is quietly refused."""
+        body = self.client.get('/account/').content.decode()
+        # No apostrophe in the needle: the template escapes them, so the
+        # literal sentence never appears in the rendered page.
+        self.assertIn('reset will not', body)
+
+    @override_settings(EMAIL_BACKEND='scheduler.mail.BrevoBackend',
+                       DEFAULT_FROM_EMAIL='KTS <timetable@gmail.com>',
+                       MAIL_SENDER_NEEDS_SETTING=False)
+    def test_a_properly_set_up_provider_is_not_nagged_about(self):
+        """Asserted on the words, not the class that styles them: every alert
+        class is defined in the stylesheet, which is on every page, so looking
+        for the class would pass whatever the page said."""
+        body = self.client.get('/account/').content.decode()
+        for nag in ['No sender address has been set',
+                    'reset will not',
+                    'No mail server is configured']:
+            with self.subTest(nag=nag):
+                self.assertNotIn(nag, body)
 
     @override_settings(EMAIL_HOST='')
     def test_an_unconfigured_server_is_called_out_rather_than_looking_fine(self):

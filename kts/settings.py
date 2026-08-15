@@ -271,31 +271,27 @@ EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True) and not EMAIL_USE_SSL
 # longer than the host will wait for the response - so the page dies with no
 # explanation rather than reporting that the server did not answer.
 EMAIL_TIMEOUT = _env_int('EMAIL_TIMEOUT', 10)
-# Resend takes mail over HTTPS as well as SMTP, and this host blocks outbound
-# SMTP - port 587 times out rather than refusing, which is what blocked looks
-# like. Nothing blocks 443, so the API is preferred wherever a key is present.
-# The key is read from EMAIL_HOST_PASSWORD too, because that is where it lands
-# if Resend's SMTP instructions were followed first.
+# Mail goes over HTTPS rather than SMTP, which this host blocks - port 587
+# times out rather than refusing, which is what blocked looks like from the
+# inside. Nothing blocks 443, so an API is preferred wherever a key is present.
+# Keys are read from EMAIL_HOST_PASSWORD as well, because that is where they
+# land if the provider's SMTP instructions were followed first.
+BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '').strip()
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
-SENDING_VIA_RESEND = bool(RESEND_API_KEY or EMAIL_HOST_PASSWORD.startswith('re_'))
 
-# Who the mail comes from. A provider will only send from a domain you have
-# proved you own, so the placeholder below is refused by Resend outright - and
-# because a reset swallows delivery failures on purpose, being refused looks
-# exactly like no email having been sent at all.
-#
-# Resend keeps one address that works before any domain is verified, so that is
-# the fallback: reset emails arrive on the day the key is pasted in, and
-# setting DEFAULT_FROM_EMAIL to your own domain later changes nothing else.
-FALLBACK_FROM_EMAIL = (
-    'KNUST Timetable System <onboarding@resend.dev>' if SENDING_VIA_RESEND
-    else 'KNUST Timetable System <no-reply@example.com>'
-)
-DEFAULT_FROM_EMAIL = (
-    os.environ.get('DEFAULT_FROM_EMAIL', '').strip() or FALLBACK_FROM_EMAIL
-)
+SENDING_VIA_BREVO = bool(
+    BREVO_API_KEY or EMAIL_HOST_PASSWORD.startswith('xkeysib-'))
+SENDING_VIA_RESEND = bool(
+    RESEND_API_KEY or EMAIL_HOST_PASSWORD.startswith('re_'))
 
-if SENDING_VIA_RESEND:
+# Brevo first when both are set. The two differ in what they need before they
+# will deliver to anyone other than the account holder: Resend wants a whole
+# domain verified through DNS, Brevo wants one address you already own. Only
+# the second makes self-service password resets work for students and
+# lecturers without owning a domain, which is the point of having mail at all.
+if SENDING_VIA_BREVO:
+    EMAIL_BACKEND = 'scheduler.mail.BrevoBackend'
+elif SENDING_VIA_RESEND:
     EMAIL_BACKEND = 'scheduler.mail.ResendBackend'
 elif EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -306,6 +302,27 @@ else:
     # the flow usable - locally while developing, and on a deploy where the
     # provider is not set up yet, where the link can be read out of the logs.
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Who the mail comes from. A provider will only send as an address you have
+# proved you control, so the placeholder is refused outright - and because a
+# reset swallows delivery failures on purpose, refused looks exactly like never
+# sent.
+#
+# Resend keeps one address that works before any domain is verified, so that is
+# its fallback and mail works the day the key is pasted in. Brevo has no
+# equivalent: the sender has to be the address you verified, so there is
+# nothing to guess and the placeholder stands as a marker that it is still to
+# be set. MAIL_SENDER_NEEDS_SETTING says which case this is, for the warning on
+# the account page.
+PLACEHOLDER_FROM_EMAIL = 'KNUST Timetable System <no-reply@example.com>'
+FALLBACK_FROM_EMAIL = (
+    'KNUST Timetable System <onboarding@resend.dev>' if SENDING_VIA_RESEND
+    else PLACEHOLDER_FROM_EMAIL
+)
+DEFAULT_FROM_EMAIL = (
+    os.environ.get('DEFAULT_FROM_EMAIL', '').strip() or FALLBACK_FROM_EMAIL
+)
+MAIL_SENDER_NEEDS_SETTING = DEFAULT_FROM_EMAIL == PLACEHOLDER_FROM_EMAIL
 
 PASSWORD_RESET_TIMEOUT = _env_int('PASSWORD_RESET_TIMEOUT', 60 * 60 * 24)
 

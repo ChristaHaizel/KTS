@@ -89,14 +89,10 @@
                 Send yourself a test to check that password reset emails
                 actually arrive.
             </p>
-            {% if mail_from_is_borrowed %}
+            {% if mail_warning %}
             <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle me-2"></i>
-                This is Resend's own sending address, which only delivers to the
-                address that owns the Resend account. Your test will arrive;
-                a student's reset will not. To email anyone else, verify a
-                domain in Resend and set <code>DEFAULT_FROM_EMAIL</code> to an
-                address on it.
+                {{ mail_warning }}
             </div>
             {% endif %}
             {% else %}

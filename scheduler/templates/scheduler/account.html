@@ -85,9 +85,9 @@
             <div class="kts-card-title"><i class="bi bi-send"></i> Email delivery</div>
             {% if mail_is_configured %}
             <p class="card-lede">
-                Sending through <strong>{{ mail_host }}</strong> on port
-                {{ mail_port }}, as {{ mail_from }}. Send yourself a test to
-                check that password reset emails actually arrive.
+                Sending as {{ mail_from }} {{ mail_summary }}
+                Send yourself a test to check that password reset emails
+                actually arrive.
             </p>
             {% else %}
             <div class="alert alert-warning">

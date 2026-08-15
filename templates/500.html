@@ -1,0 +1,78 @@
+{% comment %}
+Django renders this with no context and no request - no context processors, no
+`request`, no user. So it cannot show anything about what went wrong, and it
+must not fetch anything that might itself be what is broken: no static files,
+no stylesheet, no font, no image. Everything is inline on purpose, so the page
+still renders when static files are the fault.
+
+The default is a bare "Internal Server Error" on white, which tells whoever
+hits it nothing at all - not even whether they broke it or we did.
+{% endcomment %}<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Something went wrong - KTS</title>
+    <style>
+        :root { --kts-blue: #05409E; --ink: #1e293b; --ink-muted: #64748b; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            background: var(--kts-blue);
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            color: var(--ink);
+        }
+        .card {
+            width: 100%;
+            max-width: 460px;
+            background: #ffffff;
+            border-radius: 28px;
+            padding: 40px 32px;
+        }
+        .mark { font-size: 1.4rem; font-weight: 700; color: var(--kts-blue); letter-spacing: -0.5px; }
+        .sub {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+            margin-top: 2px;
+            margin-bottom: 28px;
+        }
+        h1 { font-size: 1.25rem; font-weight: 700; color: var(--kts-blue); margin: 0 0 10px; }
+        p { font-size: 0.9rem; line-height: 1.55; color: var(--ink-muted); margin: 0 0 14px; }
+        a {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 10px 20px;
+            border-radius: 999px;
+            background: var(--kts-blue);
+            color: #ffffff;
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="mark">KTS</div>
+        <div class="sub">KNUST Timetable System</div>
+        <h1>Something went wrong at our end</h1>
+        <p>
+            This is not something you did, and nothing you were working on has
+            been lost. The error has been recorded.
+        </p>
+        <p>
+            If it keeps happening, tell whoever administers the timetable system
+            what you were doing when it appeared - that is what makes it
+            findable in the log.
+        </p>
+        <a href="/">Back to the dashboard</a>
+    </div>
+</body>
+</html>

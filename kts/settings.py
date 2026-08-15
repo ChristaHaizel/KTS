@@ -238,7 +238,20 @@ EMAIL_HOST = os.environ.get('EMAIL_HOST', '').strip()
 EMAIL_PORT = _env_int('EMAIL_PORT', 587)
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '').strip()
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True)
+
+# The two ways of encrypting the connection, which belong to different ports:
+# STARTTLS on 587, implicit SSL on 465. Django rejects having both on, so
+# rather than let that surface as an error at send time, SSL wins - asking for
+# it is the deliberate choice, and TLS is only on here because it is the
+# default.
+EMAIL_USE_SSL = _env_bool('EMAIL_USE_SSL', False)
+EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True) and not EMAIL_USE_SSL
+
+# Without this a mail server that accepts the connection and then says nothing
+# blocks the worker for as long as the operating system allows, which is far
+# longer than the host will wait for the response - so the page dies with no
+# explanation rather than reporting that the server did not answer.
+EMAIL_TIMEOUT = _env_int('EMAIL_TIMEOUT', 10)
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', 'KNUST Timetable System <no-reply@example.com>'
 )

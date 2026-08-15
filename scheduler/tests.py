@@ -7,9 +7,11 @@ from datetime import time
 from pathlib import Path
 from unittest import mock
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.contrib.staticfiles import finders
 from django.core import mail
+from django.template.loader import render_to_string
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
@@ -2539,6 +2541,54 @@ class EnvironmentSettingTests(SimpleTestCase):
             self._reload_settings(EMAIL_HOST=' smtp.gmail.com ').EMAIL_HOST,
             'smtp.gmail.com')
 
+    def test_asking_for_ssl_turns_off_the_tls_that_is_only_on_by_default(self):
+        """Django refuses to build a backend with both set, and that refusal
+        arrives as a ValueError at send time - a server error on whichever page
+        happened to be sending."""
+        reloaded = self._reload_settings(EMAIL_USE_SSL='true')
+        self.assertIs(reloaded.EMAIL_USE_SSL, True)
+        self.assertIs(reloaded.EMAIL_USE_TLS, False)
+
+    def test_the_two_are_never_both_on(self):
+        reloaded = self._reload_settings(EMAIL_USE_SSL='true', EMAIL_USE_TLS='true')
+        self.assertFalse(reloaded.EMAIL_USE_SSL and reloaded.EMAIL_USE_TLS)
+
+    def test_mail_cannot_hang_longer_than_the_host_will_wait(self):
+        """Render gives a request 30 seconds. A mail server that accepts the
+        connection and then goes quiet would otherwise hold the worker until
+        the operating system gave up, killing the page with no explanation."""
+        self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
+
+
+class ErrorPageTests(SimpleTestCase):
+    """What a server error looks like to whoever hits it."""
+
+    def test_there_is_one(self):
+        """The default is a bare line of text on white, which does not say
+        whether they broke it or we did."""
+        rendered = render_to_string('500.html')
+        self.assertIn('KTS', rendered)
+        self.assertIn('not something you did', rendered)
+
+    def test_it_depends_on_nothing_that_could_be_the_fault(self):
+        """A page that fetches a stylesheet cannot be shown when static files
+        are what broke, and this is the page for when things are broken.
+
+        Checked against the rendered output rather than the source, because
+        that is what actually gets delivered - and because the source may
+        perfectly well discuss a tag it does not use.
+        """
+        rendered = render_to_string('500.html')
+        for fetches in ['<link', '<script', '<img', 'src=', '/static/', 'url(']:
+            with self.subTest(fetches=fetches):
+                self.assertNotIn(fetches, rendered)
+
+    def test_it_renders_with_no_context_at_all(self):
+        """Django's handler500 passes none: no request, no user, no context
+        processors. A tag that needs any of them raises inside the error
+        handler, and the visitor gets the bare default anyway."""
+        self.assertIn('<html', render_to_string('500.html'))
+
 
 class PasswordResetDeliveryTests(TestCase):
     """Django already treats a mail server that will not take the message as a
@@ -2611,6 +2661,48 @@ class TestEmailButtonTests(TestCase):
         self.assertIn('SMTPAuthenticationError', body)
         self.assertIn('Username and Password not accepted', body)
         self.assertIn('smtp.example.com', body)
+
+    @override_settings(EMAIL_HOST='smtp.example.com')
+    def test_it_survives_a_failure_it_has_never_seen(self):
+        """The button reported a blank server error page in production.
+
+        It caught only OSError and SMTPException, but a mail configuration can
+        fail while the backend is being constructed - before any connection is
+        attempted - and that is neither. A diagnostic whose own failure mode is
+        the blank page it exists to explain is worse than no diagnostic.
+        """
+        unheard_of = ValueError(
+            'EMAIL_USE_TLS/EMAIL_USE_SSL are mutually exclusive')
+        with mock.patch('scheduler.views.send_mail', side_effect=unheard_of):
+            response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('mutually exclusive', response.content.decode())
+
+    @override_settings(EMAIL_HOST='smtp.example.com')
+    def test_known_faults_say_what_to_change(self):
+        """A class name and a numeric code are not an instruction."""
+        cases = [
+            (smtplib.SMTPAuthenticationError(535, b'nope'), 'App Password'),
+            (smtplib.SMTPSenderRefused(553, b'nope', 'a@b.c'), 'from address'),
+            (TimeoutError('timed out'), 'STARTTLS belongs to 587'),
+            (ConnectionRefusedError('refused'), 'Check the host name'),
+        ]
+        for error, advice in cases:
+            with self.subTest(error=type(error).__name__):
+                with mock.patch('scheduler.views.send_mail', side_effect=error):
+                    response = self.client.post(
+                        '/account/', {'test_email': '1'}, follow=True)
+                self.assertIn(advice, response.content.decode())
+
+    @override_settings(EMAIL_HOST='smtp.example.com', EMAIL_PORT=465,
+                       EMAIL_USE_SSL=True, EMAIL_USE_TLS=False)
+    def test_the_summary_names_the_settings_that_usually_disagree(self):
+        with mock.patch('scheduler.views.send_mail',
+                        side_effect=TimeoutError('timed out')):
+            response = self.client.post('/account/', {'test_email': '1'}, follow=True)
+        body = response.content.decode()
+        self.assertIn('port 465', body)
+        self.assertIn('encryption SSL', body)
 
     @override_settings(EMAIL_HOST='smtp.example.com')
     def test_a_working_server_says_so(self):

@@ -33,8 +33,8 @@ from .genetic_algorithm import (
     PENALTY_GROUP_CLASH, PENALTY_OVER_CAPACITY,
 )
 from .forms import (
-    MAIL_DELIVERY_ERRORS, LecturerForm, CourseForm, MyEmailForm, RoomForm,
-    StudentForm, StudentGroupForm, TimeSlotForm,
+    LecturerForm, CourseForm, MyEmailForm, RoomForm, StudentForm,
+    StudentGroupForm, TimeSlotForm,
 )
 from .notifications import notify, notify_all_students, notify_group_of_change
 
@@ -285,10 +285,52 @@ def my_account(request):
         'password_form': password_form,
         'previewing': previewing,
         'mail_is_configured': bool(settings.EMAIL_HOST),
-        'mail_host': settings.EMAIL_HOST,
-        'mail_port': settings.EMAIL_PORT,
+        'mail_summary': _mail_settings_summary(),
         'mail_from': settings.DEFAULT_FROM_EMAIL,
     })
+
+
+def _mail_settings_summary():
+    """The settings that decide whether mail works, for the error message.
+
+    Named here rather than left for the reader to go and look up, because the
+    commonest mail faults are a mismatch between two of them - STARTTLS asked
+    of a port that wants implicit SSL, most of all.
+    """
+    encryption = 'SSL' if settings.EMAIL_USE_SSL else (
+        'STARTTLS' if settings.EMAIL_USE_TLS else 'none')
+    return (
+        f'(host {settings.EMAIL_HOST or "unset"}, port {settings.EMAIL_PORT}, '
+        f'encryption {encryption}, signing in as '
+        f'{settings.EMAIL_HOST_USER or "nobody"}.)'
+    )
+
+
+def _describe(exc):
+    """Turn the failure into something that says what to change.
+
+    The class name alone is jargon and the message alone is often a bare
+    numeric code, so both go in - and where the cause is a known
+    misconfiguration, what to do about it goes in front of them.
+    """
+    import smtplib
+
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        lead = ('The mail server rejected the username or password. If this is '
+                'Gmail, it needs an App Password rather than your normal one.')
+    elif isinstance(exc, smtplib.SMTPSenderRefused):
+        lead = ('The mail server refused the from address. It usually has to '
+                'match the account you are signing in as.')
+    elif isinstance(exc, (TimeoutError, smtplib.SMTPServerDisconnected)):
+        lead = ('The mail server did not answer in time. That is usually the '
+                'wrong port, or the wrong kind of encryption for the port: '
+                'STARTTLS belongs to 587, implicit SSL to 465.')
+    elif isinstance(exc, OSError):
+        lead = ('Could not reach the mail server at all. Check the host name '
+                'and the port.')
+    else:
+        lead = 'Sending failed.'
+    return f'{lead} {exc.__class__.__name__}: {exc}'
 
 
 def _send_test_email(request):
@@ -327,14 +369,15 @@ def _send_test_email(request):
             recipient_list=[request.user.email],
             fail_silently=False,
         )
-    except MAIL_DELIVERY_ERRORS as exc:
+    except Exception as exc:
+        # Deliberately everything. This exists to report why mail is failing,
+        # so a failure it does not recognise is the one it must report rather
+        # than the one that takes the page down - which is what a narrower
+        # catch did: a mail setup can fail while being built, before any
+        # connection is attempted, and that arrives as neither OSError nor
+        # SMTPException.
         logger.exception('Test email to %s failed', request.user.username)
-        messages.error(
-            request,
-            f'The mail server refused the message: {exc.__class__.__name__}: {exc} '
-            f'(host {settings.EMAIL_HOST}, port {settings.EMAIL_PORT}). '
-            f'Password reset emails are failing the same way.',
-        )
+        messages.error(request, f'{_describe(exc)} {_mail_settings_summary()}')
         return
 
     logger.info('%s sent themselves a test email', request.user.username)

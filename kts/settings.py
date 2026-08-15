@@ -275,7 +275,16 @@ DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', 'KNUST Timetable System <no-reply@example.com>'
 )
 
-if EMAIL_HOST:
+# Resend takes mail over HTTPS as well as SMTP, and this host blocks outbound
+# SMTP - port 587 times out rather than refusing, which is what blocked looks
+# like. Nothing blocks 443, so the API is preferred wherever a key is present.
+# The key is read from EMAIL_HOST_PASSWORD too, because that is where it lands
+# if Resend's SMTP instructions were followed first.
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
+
+if RESEND_API_KEY or EMAIL_HOST_PASSWORD.startswith('re_'):
+    EMAIL_BACKEND = 'scheduler.mail.ResendBackend'
+elif EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:
     # Django's default points at an SMTP server on localhost, which does not

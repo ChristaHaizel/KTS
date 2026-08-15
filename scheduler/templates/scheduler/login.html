@@ -94,7 +94,7 @@
                 Invalid username or password. Please try again.
             </div>
         {% endif %}
-        <form method="post">
+        <form method="post" data-busy>
             {% csrf_token %}
             <div class="mb-3">
                 <label class="form-label" for="id_username">Username</label>
@@ -112,7 +112,10 @@
                 </div>
                 <a href="{% url 'password_reset' %}" class="forgot-link">Forgot your password?</a>
             </div>
-            <button type="submit" class="btn-login">Sign In</button>
+            <button type="submit" class="btn-login" data-busy-label="Signing in...">
+                <span class="btn-spinner" aria-hidden="true"></span>
+                <span class="btn-label">Sign In</span>
+            </button>
         </form>
     </div>
 </div>

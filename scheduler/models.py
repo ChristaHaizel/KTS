@@ -8,14 +8,17 @@ DAY_CHOICES = [
 ]
 
 
-def day_ordering():
+def day_ordering(field='day'):
     """Sort Monday to Friday.
 
     Ordering on the raw code sorts alphabetically - FRI, MON, THU, TUE, WED -
     which is never what anyone reading a timetable wants.
+
+    Takes the field path so it also works from a model that reaches the day
+    through a relation, as anything ordering timetable entries must.
     """
     return models.Case(
-        *[models.When(day=code, then=index)
+        *[models.When(**{field: code}, then=index)
           for index, (code, _label) in enumerate(DAY_CHOICES)],
         output_field=models.IntegerField(),
     )

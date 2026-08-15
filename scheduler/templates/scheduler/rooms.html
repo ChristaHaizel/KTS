@@ -29,8 +29,8 @@
             <tbody>
                 {% for room in rooms %}
                 <tr>
-                    <td class="cell-primary">{{ room.name }}</td>
-                    <td>{{ room.capacity }} seats</td>
+                    <td class="cell-primary" data-label="Name">{{ room.name }}</td>
+                    <td data-label="Capacity">{{ room.capacity }} seats</td>
                     <td>
                         <div class="row-actions">
                             <a href="{% url 'room_edit' room.pk %}" class="icon-btn icon-edit" title="Edit {{ room.name }}">

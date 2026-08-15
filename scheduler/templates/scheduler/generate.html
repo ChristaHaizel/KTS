@@ -28,10 +28,13 @@
                 Make sure you have added <strong>Courses, Rooms, Time Slots and Student Groups</strong> before generating. Any existing timetable will be replaced.
             </div>
 
-            <form method="post" id="generate-form">
+            <form method="post" data-busy>
                 {% csrf_token %}
-                <button type="submit" class="btn btn-kts-primary w-100 py-3 generate-submit" id="generate-submit">
-                    <i class="bi bi-play-circle me-2"></i> Generate Timetable
+                <button type="submit" class="btn btn-kts-primary w-100 py-3 generate-submit"
+                        data-busy-label="Running the algorithm...">
+                    <span class="btn-spinner" aria-hidden="true"></span>
+                    <i class="bi bi-play-circle" aria-hidden="true"></i>
+                    <span class="btn-label">Generate Timetable</span>
                 </button>
             </form>
             <div class="text-center mt-3">
@@ -40,11 +43,10 @@
         </div>
     </div>
 </div>
-<script>
-    document.getElementById('generate-form').addEventListener('submit', function () {
-        var button = document.getElementById('generate-submit');
-        button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running Algorithm...';
-        button.disabled = true;
-    });
-</script>
+{% comment %}
+The busy state used to live here as its own script, which also disabled the
+button - harmless on this form, but the same trick elsewhere drops the
+button's name from the POST. It is shared now: form-busy.js, opted into with
+data-busy above.
+{% endcomment %}
 {% endblock %}

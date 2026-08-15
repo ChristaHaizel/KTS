@@ -118,8 +118,33 @@
             font-size: 0.9rem;
             width: 100%;
             transition: background-color 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--sp-2);
         }
         .btn-login:hover { background: var(--kts-blue-dark); }
+
+        /* Shown while a slow form is on its way. Signing in can take a while
+           when the host has to wake up first, and an unchanged button reads as
+           one that did not register the press. */
+        .btn-spinner {
+            display: none;
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+            border: 2px solid rgba(255,255,255,0.35);
+            border-top-color: var(--on-brand);
+            border-radius: var(--r-circle);
+            animation: btn-spin 0.7s linear infinite;
+        }
+        .is-busy .btn-spinner { display: inline-block; }
+        .is-busy { cursor: progress; }
+        @keyframes btn-spin { to { transform: rotate(360deg); } }
+        /* The label still changes, so the message survives without the motion. */
+        @media (prefers-reduced-motion: reduce) {
+            .btn-spinner { animation: none; }
+        }
 
         .login-alert {
             border-radius: var(--r-card);
@@ -164,5 +189,6 @@
 <body>
 {% block body %}{% endblock %}
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
+<script src="{% static 'scheduler/form-busy.js' %}"></script>
 </body>
 </html>

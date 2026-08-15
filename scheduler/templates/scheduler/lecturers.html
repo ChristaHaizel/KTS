@@ -30,9 +30,9 @@
             <tbody>
                 {% for lecturer in lecturers %}
                 <tr>
-                    <td class="cell-primary">{{ lecturer.name }}</td>
-                    <td>{{ lecturer.email }}</td>
-                    <td>
+                    <td class="cell-primary" data-label="Name">{{ lecturer.name }}</td>
+                    <td data-label="Email">{{ lecturer.email }}</td>
+                    <td data-label="Login account">
                         {% if lecturer.user %}
                             <span class="day-badge">{{ lecturer.user.username }}</span>
                             <form method="post" action="{% url 'view_as' lecturer.user.pk %}" class="d-inline">

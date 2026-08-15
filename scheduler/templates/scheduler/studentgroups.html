@@ -30,8 +30,8 @@
             <tbody>
                 {% for group in groups %}
                 <tr>
-                    <td class="cell-primary">{{ group.name }}</td>
-                    <td>
+                    <td class="cell-primary" data-label="Name">{{ group.name }}</td>
+                    <td data-label="Students">
                         {% if group.size %}
                             {{ group.size }}
                         {% elif group.enrolled_count %}
@@ -40,7 +40,7 @@
                             <span class="text-faint">&mdash;</span>
                         {% endif %}
                     </td>
-                    <td>
+                    <td data-label="Courses">
                         {% for course in group.courses.all %}
                             <span class="day-badge badge-spaced">{{ course.code }}</span>
                         {% empty %}

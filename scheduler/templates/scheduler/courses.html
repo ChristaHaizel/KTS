@@ -31,10 +31,10 @@
             <tbody>
                 {% for course in courses %}
                 <tr>
-                    <td class="cell-accent">{{ course.code }}</td>
-                    <td class="cell-primary">{{ course.name }}</td>
-                    <td>{{ course.lecturer.name|default:"—" }}</td>
-                    <td>{{ course.expected_students }}</td>
+                    <td class="cell-accent" data-label="Code">{{ course.code }}</td>
+                    <td class="cell-primary" data-label="Name">{{ course.name }}</td>
+                    <td data-label="Lecturer">{{ course.lecturer.name|default:"—" }}</td>
+                    <td data-label="Expected Students">{{ course.expected_students }}</td>
                     <td>
                         <div class="row-actions">
                             <a href="{% url 'course_edit' course.pk %}" class="icon-btn icon-edit" title="Edit {{ course.code }}">

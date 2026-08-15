@@ -1,3 +1,4 @@
+import csv
 import logging
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -20,7 +21,7 @@ from .permissions import (
 )
 from .models import (
     TimetableEntry, RescheduleRequest, Room, Lecturer, Course, StudentGroup,
-    TimeSlot, GenerationRun, Student, Notification,
+    TimeSlot, GenerationRun, Student, Notification, day_ordering,
 )
 from .accounts import create_student_account, derive_username, generate_password
 from .baselines import compare
@@ -120,10 +121,20 @@ def dashboard(request):
             'course', 'room', 'timeslot', 'student_group'
         ).order_by('timeslot__start_time')[:5],
     })
-@login_required
-def timetable_view(request):
-    days = ['MON', 'TUE', 'WED', 'THU', 'FRI']
-    day_names = {'MON':'Monday','TUE':'Tuesday','WED':'Wednesday','THU':'Thursday','FRI':'Friday'}
+
+
+DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI']
+DAY_NAMES = {'MON': 'Monday', 'TUE': 'Tuesday', 'WED': 'Wednesday',
+             'THU': 'Thursday', 'FRI': 'Friday'}
+
+
+def _visible_entries(request):
+    """The timetable this person is allowed to see, with any filters applied.
+
+    Shared by the page and the download so the file can never contain
+    something the page does not show - which for a student would mean handing
+    them another group's timetable.
+    """
     entries = TimetableEntry.objects.filter(is_active=True).select_related(
         'course', 'room', 'timeslot', 'student_group', 'course__lecturer'
     )
@@ -133,14 +144,22 @@ def timetable_view(request):
     student = student_for(request.user)
     if student is not None:
         entries = entries.filter(student_group=student.group) if student.group else entries.none()
-        group_filter = lecturer_filter = None
-    else:
-        group_filter = request.GET.get('group')
-        lecturer_filter = request.GET.get('lecturer')
-        if group_filter:
-            entries = entries.filter(student_group__id=group_filter)
-        if lecturer_filter:
-            entries = entries.filter(course__lecturer__id=lecturer_filter)
+        return entries, student, None, None
+
+    group_filter = request.GET.get('group')
+    lecturer_filter = request.GET.get('lecturer')
+    if group_filter:
+        entries = entries.filter(student_group__id=group_filter)
+    if lecturer_filter:
+        entries = entries.filter(course__lecturer__id=lecturer_filter)
+    return entries, None, group_filter, lecturer_filter
+
+
+@login_required
+def timetable_view(request):
+    days = DAYS
+    day_names = DAY_NAMES
+    entries, student, group_filter, lecturer_filter = _visible_entries(request)
 
     # One row per day, one column per distinct period. A TimeSlot carries its
     # own day, so a row per TimeSlot would render a diagonal staircase in which
@@ -169,6 +188,20 @@ def timetable_view(request):
             }
             for day in days
         ],
+        # The same thing as a list, for a screen too narrow for a grid. Empty
+        # periods are dropped rather than rendered as blanks - on a phone the
+        # gaps are what you scroll past, not what you read - but a day with
+        # nothing in it stays, because a free day is worth knowing about.
+        'agenda': [
+            {
+                'day_name': day_names[day],
+                'slots': [
+                    {'start': start, 'end': end, 'entries': grid[day][(start, end)]}
+                    for start, end in periods if grid[day][(start, end)]
+                ],
+            }
+            for day in days
+        ],
         # Students get no filter controls: the grid is already theirs, and the
         # dropdowns would list every group and every member of staff.
         'groups': [] if student else StudentGroup.objects.all(),
@@ -178,6 +211,47 @@ def timetable_view(request):
         'student': student,
     }
     return render(request, 'scheduler/timetable.html', context)
+
+
+@login_required
+def timetable_download(request):
+    """The timetable as a spreadsheet.
+
+    Goes through the same filter as the page, so what arrives in the file is
+    exactly what was on screen - a student gets their own group and nobody
+    else's, whatever they put in the query string.
+    """
+    entries, student, _, _ = _visible_entries(request)
+    # Monday first. Ordering on the raw code would file it FRI, MON, THU.
+    entries = entries.order_by(day_ordering('timeslot__day'),
+                               'timeslot__start_time', 'course__code')
+
+    if student is not None:
+        stem = f'timetable-{student.student_id}'
+    else:
+        stem = 'timetable'
+
+    response = HttpResponse(content_type='text/csv')
+    # quote the filename: a group name can contain a space.
+    response['Content-Disposition'] = f'attachment; filename="kts-{stem}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Day', 'Start', 'End', 'Course code', 'Course name',
+                     'Lecturer', 'Room', 'Student group'])
+    for entry in entries:
+        writer.writerow([
+            DAY_NAMES.get(entry.timeslot.day, entry.timeslot.day),
+            entry.timeslot.start_time.strftime('%H:%M'),
+            entry.timeslot.end_time.strftime('%H:%M'),
+            entry.course.code,
+            entry.course.name,
+            entry.course.lecturer.name if entry.course.lecturer else '',
+            entry.room.name,
+            entry.student_group.name,
+        ])
+
+    logger.info('%s downloaded a timetable', request.user.username)
+    return response
 
 @login_required
 @staff_required
@@ -295,8 +369,13 @@ def _mail_settings_summary():
 
     Named here rather than left for the reader to go and look up, because the
     commonest mail faults are a mismatch between two of them - STARTTLS asked
-    of a port that wants implicit SSL, most of all.
+    of a port that wants implicit SSL, most of all. Which of those matter
+    depends on the road the mail takes, so only the relevant ones are shown.
     """
+    if settings.EMAIL_BACKEND.endswith('ResendBackend'):
+        return '(Sent over the Resend API on HTTPS, not SMTP.)'
+    if settings.EMAIL_BACKEND.endswith('console.EmailBackend'):
+        return '(No mail server configured - messages go to the log.)'
     encryption = 'SSL' if settings.EMAIL_USE_SSL else (
         'STARTTLS' if settings.EMAIL_USE_TLS else 'none')
     return (
@@ -315,6 +394,11 @@ def _describe(exc):
     """
     import smtplib
 
+    from .mail import MailDeliveryError
+
+    if isinstance(exc, MailDeliveryError):
+        # Already phrased for whoever has to act on it.
+        return str(exc)
     if isinstance(exc, smtplib.SMTPAuthenticationError):
         lead = ('The mail server rejected the username or password. If this is '
                 'Gmail, it needs an App Password rather than your normal one.')

@@ -1,8 +1,12 @@
+import csv
 import importlib
+import io
+import json
 import os
 import random
 import re
 import smtplib
+import urllib.error
 from datetime import time
 from pathlib import Path
 from unittest import mock
@@ -11,6 +15,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group, User
 from django.contrib.staticfiles import finders
 from django.core import mail
+from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -21,6 +26,7 @@ from django.test.utils import CaptureQueriesContext
 from . import charts
 from .accounts import create_student_account
 from .baselines import compare, greedy_schedule, random_schedule
+from .mail import MailDeliveryError, ResendBackend, resend_api_key
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
 from .importers import (
@@ -2586,6 +2592,96 @@ class EnvironmentSettingTests(SimpleTestCase):
         self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
 
 
+class ResendBackendTests(SimpleTestCase):
+    """Mail goes over HTTPS because the host blocks outbound SMTP.
+
+    A connection to port 587 timed out rather than being refused, which is what
+    a blocked port looks like from the inside. Nothing blocks 443.
+    """
+
+    def _backend(self, **kwargs):
+        kwargs.setdefault('api_key', 're_test_key')
+        return ResendBackend(**kwargs)
+
+    def _message(self):
+        return EmailMessage(
+            subject='KTS password reset',
+            body='Follow this link: https://kts.example/password-reset/a/b/',
+            from_email='KTS <no-reply@kts.example>',
+            to=['student@st.knust.edu.gh'],
+        )
+
+    def _sent_request(self, mocked):
+        return mocked.call_args[0][0]
+
+    def test_it_posts_the_message_the_way_resend_expects(self):
+        with mock.patch('scheduler.mail.urllib.request.urlopen') as urlopen:
+            self.assertEqual(self._backend().send_messages([self._message()]), 1)
+        request = self._sent_request(urlopen)
+        self.assertEqual(request.get_header('Authorization'), 'Bearer re_test_key')
+        payload = json.loads(request.data.decode())
+        self.assertEqual(payload['to'], ['student@st.knust.edu.gh'])
+        self.assertEqual(payload['subject'], 'KTS password reset')
+        self.assertIn('password-reset', payload['text'])
+
+    def test_it_goes_over_https(self):
+        """The whole reason this exists - 443 is the one port nothing blocks."""
+        with mock.patch('scheduler.mail.urllib.request.urlopen') as urlopen:
+            self._backend().send_messages([self._message()])
+        self.assertTrue(self._sent_request(urlopen).full_url.startswith('https://'))
+
+    def _failing_with(self, code, message):
+        return urllib.error.HTTPError(
+            'https://api.resend.com/emails', code, 'error', {},
+            io.BytesIO(json.dumps({'message': message}).encode()))
+
+    def test_what_resend_refuses_is_reported_as_something_to_act_on(self):
+        cases = [
+            (401, 'API key is invalid', 'has not been revoked'),
+            (403, 'testing emails only', 'verify a domain'),
+            (422, 'not a verified domain', 'domain you have verified'),
+        ]
+        for code, detail, advice in cases:
+            with self.subTest(code=code):
+                with mock.patch('scheduler.mail.urllib.request.urlopen',
+                                side_effect=self._failing_with(code, detail)):
+                    with self.assertRaises(MailDeliveryError) as caught:
+                        self._backend().send_messages([self._message()])
+                self.assertIn(advice, str(caught.exception))
+                self.assertIn(detail, str(caught.exception))
+
+    def test_a_missing_key_says_so_rather_than_failing_obscurely(self):
+        with self.assertRaises(MailDeliveryError) as caught:
+            self._backend(api_key='').send_messages([self._message()])
+        self.assertIn('RESEND_API_KEY', str(caught.exception))
+
+    def test_it_stays_quiet_when_asked_to(self):
+        """A password reset sends with fail_silently, and must not become a
+        server error because mail is misconfigured."""
+        backend = self._backend(api_key='', fail_silently=True)
+        self.assertEqual(backend.send_messages([self._message()]), 0)
+
+    def test_the_key_is_found_where_resends_own_instructions_put_it(self):
+        """Following the SMTP setup lands it in EMAIL_HOST_PASSWORD, and there
+        is no reason to make someone move it to get mail working."""
+        with override_settings(RESEND_API_KEY='', EMAIL_HOST_PASSWORD='re_from_smtp'):
+            self.assertEqual(resend_api_key(), 're_from_smtp')
+
+    def test_an_ordinary_smtp_password_is_not_mistaken_for_a_key(self):
+        with override_settings(RESEND_API_KEY='', EMAIL_HOST_PASSWORD='hunter2'):
+            self.assertEqual(resend_api_key(), '')
+
+    def test_an_explicit_key_wins(self):
+        with override_settings(RESEND_API_KEY='re_explicit',
+                               EMAIL_HOST_PASSWORD='re_leftover'):
+            self.assertEqual(resend_api_key(), 're_explicit')
+
+    def test_it_cannot_hang_past_what_the_host_allows(self):
+        with mock.patch('scheduler.mail.urllib.request.urlopen') as urlopen:
+            self._backend().send_messages([self._message()])
+        self.assertLessEqual(urlopen.call_args.kwargs['timeout'], 30)
+
+
 class ErrorPageTests(SimpleTestCase):
     """What a server error looks like to whoever hits it."""
 
@@ -2763,6 +2859,148 @@ class TestEmailButtonTests(TestCase):
                          self.client.get('/account/').content.decode())
         self.client.post('/account/', {'test_email': '1'}, follow=True)
         self.assertEqual(len(mail.outbox), 0)
+
+
+class TimetableDownloadTests(TestCase):
+    """Taking the timetable away with you."""
+
+    def setUp(self):
+        build_dataset()
+        run_genetic_algorithm()
+
+    def _rows(self, response):
+        body = response.content.decode()
+        return list(csv.reader(io.StringIO(body)))
+
+    def test_an_admin_gets_the_whole_week(self):
+        self.client.force_login(make_admin())
+        response = self.client.get('/timetable/download/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'text/csv')
+        self.assertIn('attachment;', response['Content-Disposition'])
+
+        rows = self._rows(response)
+        self.assertEqual(rows[0], ['Day', 'Start', 'End', 'Course code',
+                                   'Course name', 'Lecturer', 'Room',
+                                   'Student group'])
+        self.assertEqual(len(rows) - 1, TimetableEntry.objects.filter(
+            is_active=True).count())
+
+    def test_a_student_gets_their_own_group_and_no_one_elses(self):
+        group = StudentGroup.objects.first()
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', group=group)
+        create_student_account(student)
+        student.refresh_from_db()
+        self.client.force_login(student.user)
+
+        rows = self._rows(self.client.get('/timetable/download/'))[1:]
+        self.assertTrue(rows, 'the student has classes but got an empty file')
+        self.assertEqual({row[7] for row in rows}, {group.name})
+
+    def test_a_student_cannot_widen_it_with_a_query_string(self):
+        """The page gives them no filter controls, so the file must not accept
+        one either - the URL is the obvious thing to try."""
+        mine, theirs = StudentGroup.objects.all()[:2]
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', group=mine)
+        create_student_account(student)
+        student.refresh_from_db()
+        self.client.force_login(student.user)
+
+        rows = self._rows(self.client.get(
+            f'/timetable/download/?group={theirs.pk}'))[1:]
+        self.assertEqual({row[7] for row in rows}, {mine.name})
+
+    def test_the_file_is_named_for_the_student(self):
+        student = Student.objects.create(
+            student_id='20512001', name='Ama', group=StudentGroup.objects.first())
+        create_student_account(student)
+        student.refresh_from_db()
+        self.client.force_login(student.user)
+        response = self.client.get('/timetable/download/')
+        self.assertIn('20512001', response['Content-Disposition'])
+
+    def test_a_filter_on_the_page_is_a_filter_on_the_file(self):
+        """Otherwise Download quietly hands over the whole department after you
+        narrowed the page to one group."""
+        self.client.force_login(make_admin())
+        group = StudentGroup.objects.first()
+        rows = self._rows(self.client.get(
+            f'/timetable/download/?group={group.pk}'))[1:]
+        self.assertEqual({row[7] for row in rows}, {group.name})
+
+    def test_it_reads_monday_first(self):
+        """Ordering on the raw day code files it FRI, MON, THU, TUE, WED, which
+        is nobody's week."""
+        self.client.force_login(make_admin())
+        days = [row[0] for row in self._rows(
+            self.client.get('/timetable/download/'))[1:]]
+        week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+        self.assertEqual(days, sorted(days, key=week.index))
+
+    def test_it_needs_a_login(self):
+        response = self.client.get('/timetable/download/')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/login/', response.url)
+
+    def test_the_page_offers_it(self):
+        self.client.force_login(make_admin())
+        self.assertIn('/timetable/download/',
+                      self.client.get('/timetable/').content.decode())
+
+
+class MobileTableTests(TestCase):
+    """On a phone the tables stop being tables.
+
+    The header row is dropped and every cell carries its own label, so the two
+    have to agree - and they are written in different places, which is exactly
+    the arrangement that drifts when a column is renamed.
+    """
+
+    LIST_PAGES = ['/lecturers/', '/courses/', '/rooms/', '/student-groups/',
+                  '/students/', '/timeslots/']
+
+    def setUp(self):
+        build_dataset()
+        Student.objects.create(student_id='20512001', name='Ama')
+        self.client.force_login(make_admin())
+
+    def _table(self, url):
+        body = self.client.get(url).content.decode()
+        return re.search(r'<table class="data-table">.*?</table>', body, re.S).group(0)
+
+    def test_every_cell_is_labelled_with_its_own_column(self):
+        for url in self.LIST_PAGES:
+            with self.subTest(url=url):
+                table = self._table(url)
+                headings = [re.sub(r'<[^>]+>', '', h).strip()
+                            for h in re.findall(r'<th[^>]*>(.*?)</th>', table, re.S)]
+                first_row = re.search(r'<tbody>.*?<tr>(.*?)</tr>', table, re.S).group(1)
+                labels = re.findall(r'<td[^>]*?data-label="([^"]*)"', first_row)
+
+                # Every column but the last, which is the row's buttons and
+                # needs no label beside two icons.
+                self.assertEqual(labels, headings[:-1])
+
+    def test_the_actions_column_is_left_unlabelled(self):
+        """"Actions" next to a pencil and a bin is noise."""
+        for url in self.LIST_PAGES:
+            with self.subTest(url=url):
+                self.assertNotIn('data-label="Actions"', self._table(url))
+
+    def test_the_timetable_ships_both_shapes(self):
+        run_genetic_algorithm()
+        body = self.client.get('/timetable/').content.decode()
+        self.assertIn('timetable-grid', body)
+        self.assertIn('timetable-agenda', body)
+
+    def test_the_agenda_says_when_a_day_is_free(self):
+        """A day with nothing in it is worth knowing about; a blank card is
+        not the same as being told."""
+        TimetableEntry.objects.all().delete()
+        body = self.client.get('/timetable/').content.decode()
+        self.assertIn('No classes.', body)
 
 
 class MobileLayoutTests(TestCase):
@@ -3219,10 +3457,28 @@ class SplitCohortTests(TestCase):
         self.assertEqual(self.g1.size_for(self.course), 45)
 
     def test_an_oversized_group_is_still_flagged(self):
-        """The check must still fire when the group genuinely does not fit."""
+        """The check must still fire when the group genuinely does not fit.
+
+        The placement is made directly rather than by running the algorithm.
+        What is being tested is the capacity check, and reaching it through the
+        search made the test depend on the search's luck: entries that collide
+        on a room and time are dropped before saving, and on roughly one seed
+        in ten the oversized class was the one dropped, leaving nothing to flag
+        and the test failing for a reason that had nothing to do with capacity.
+        """
         huge = StudentGroup.objects.create(name='Huge', size=500)
         huge.courses.set([self.course])
-        run_genetic_algorithm()
+        room = Room.objects.first()
+        self.assertLess(room.capacity, huge.size)
+
+        TimetableEntry.objects.create(
+            course=self.course,
+            room=room,
+            timeslot=TimeSlot.objects.first(),
+            student_group=huge,
+            is_active=True,
+        )
+
         types = {c['type'] for c in detect_conflicts()}
         self.assertIn('Room Capacity Mismatch', types)
 

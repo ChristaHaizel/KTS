@@ -374,6 +374,34 @@
             background: var(--kts-blue-dark);
             color: var(--on-brand);
         }
+        /* Busy state for a slow form - generating a timetable, importing a
+           file. An unchanged button reads as one that did not register the
+           press, and the press it invites runs the work a second time. */
+        .btn-spinner {
+            display: none;
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+            border: 2px solid rgba(255,255,255,0.35);
+            border-top-color: var(--on-brand);
+            border-radius: var(--r-circle);
+            animation: btn-spin 0.7s linear infinite;
+        }
+        .is-busy .btn-spinner { display: inline-block; }
+        .is-busy {
+            cursor: progress;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--sp-2);
+        }
+        /* The icon is decoration; with a spinner beside it, it is clutter. */
+        .is-busy > i { display: none; }
+        @keyframes btn-spin { to { transform: rotate(360deg); } }
+        /* The label changes too, so the message survives without the motion. */
+        @media (prefers-reduced-motion: reduce) {
+            .btn-spinner { animation: none; }
+        }
         .btn-kts-outline {
             background: var(--surface);
             color: var(--kts-blue);
@@ -463,6 +491,33 @@
         }
         .entry-pill .course-code { font-weight: 700; color: var(--kts-blue); }
         .entry-pill .entry-meta { color: var(--ink-muted); font-size: 0.72rem; margin-top: 2px; }
+
+        /* The same timetable as a list, for a screen too narrow for a week.
+           Hidden here; the narrow-screen block at the foot swaps the two. */
+        .timetable-agenda { display: none; }
+        .agenda-slot {
+            display: flex;
+            gap: var(--sp-3);
+            padding: var(--sp-3) 0;
+            border-top: 1px solid var(--line);
+        }
+        .agenda-slot:first-of-type { border-top: none; padding-top: 0; }
+        .agenda-time {
+            flex-shrink: 0;
+            width: 58px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--kts-blue);
+            font-variant-numeric: tabular-nums;
+        }
+        .agenda-time-end {
+            display: block;
+            font-weight: 400;
+            color: var(--ink-faint);
+        }
+        .agenda-entries { flex: 1; min-width: 0; }
+        .agenda-entries .entry-pill:last-child { margin-bottom: 0; }
+        .agenda-free { color: var(--ink-faint); font-size: 0.85rem; margin: 0; }
 
         /* Conflict badges */
         .conflict-badge {
@@ -845,6 +900,9 @@
             font-weight: 500;
             font-size: 0.875rem;
             padding: 10px 20px;
+            /* It is a link so that it can lead to a confirmation page, but it
+               reads as a button and Bootstrap underlines every anchor. */
+            text-decoration: none;
             transition: background-color 0.2s, border-color 0.2s;
         }
         .btn-delete-all:hover {
@@ -1182,21 +1240,53 @@
 
             .pager { flex-wrap: wrap; }
 
-            /* Timetable. The grid is far wider than any phone, so it scrolls
-               sideways - and the day has to stay pinned, or scrolling to the
-               afternoon leaves you reading a row with no idea which day it is. */
-            .timetable-table .day-heading,
-            .timetable-table .day-cell {
-                position: sticky;
-                left: 0;
-                z-index: 2;
-                width: 74px;
-                min-width: 74px;
+            /* A week will not fit across a phone at any density worth reading,
+               so the list takes over and the grid stands down. */
+            .timetable-agenda { display: block; }
+            .timetable-grid { display: none; }
+
+            /* Data tables stop being tables.
+
+               Sideways scrolling inside a card technically shows everything,
+               but you have to know to try it, and the column you most want -
+               the buttons at the end of the row - is the one off the edge.
+               Each row becomes a small stack of labelled values instead, so
+               everything is on screen and the actions are where the thumb is.
+               The header carries the labels, so it goes: they are reattached
+               to each cell through data-label. */
+            .data-table thead { display: none; }
+            .data-table,
+            .data-table tbody,
+            .data-table tr,
+            .data-table td { display: block; width: 100%; }
+            .data-table tbody tr {
+                padding: var(--sp-3) 2px;
+                border-top: 1px solid var(--line);
             }
-            .timetable-table .day-cell { background: var(--surface); }
-            /* Without a floor the columns divide the width between them and
-               every pill wraps to one word per line. */
-            .timetable-table tbody td:not(.day-cell) { min-width: 132px; }
+            .data-table tbody tr:first-child { border-top: none; }
+            .data-table tbody td {
+                display: flex;
+                align-items: baseline;
+                justify-content: space-between;
+                gap: var(--sp-4);
+                padding: 5px 0;
+                border: none;
+            }
+            .data-table tbody td::before {
+                content: attr(data-label);
+                flex-shrink: 0;
+                font-size: 0.68rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.6px;
+                color: var(--ink-faint);
+            }
+            /* A cell with no label is the row's actions: it gets the full
+               width rather than a blank column where the label would be. */
+            .data-table tbody td:not([data-label]) { justify-content: flex-end; }
+            .data-table tbody tr:hover td { background: transparent; }
+            .data-table .empty-state { display: block; text-align: center; }
+            .data-table .empty-state::before { content: none; }
         }
 
         /* Phones proper, where two buttons side by side no longer fit the row. */
@@ -1362,5 +1452,6 @@
 <script src="{% static 'scheduler/vendor/bootstrap.bundle.min.js' %}"></script>
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
 <script src="{% static 'scheduler/nav-drawer.js' %}"></script>
+<script src="{% static 'scheduler/form-busy.js' %}"></script>
 </body>
 </html>

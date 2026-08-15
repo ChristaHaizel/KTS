@@ -28,9 +28,9 @@
             <tbody>
                 {% for slot in timeslots %}
                 <tr>
-                    <td><span class="day-badge">{{ slot.get_day_display }}</span></td>
-                    <td class="cell-primary">{{ slot.start_time|time:"H:i" }}</td>
-                    <td class="cell-primary">{{ slot.end_time|time:"H:i" }}</td>
+                    <td data-label="Day"><span class="day-badge">{{ slot.get_day_display }}</span></td>
+                    <td class="cell-primary" data-label="Start Time">{{ slot.start_time|time:"H:i" }}</td>
+                    <td class="cell-primary" data-label="End Time">{{ slot.end_time|time:"H:i" }}</td>
                     <td>
                         <div class="row-actions">
                             <a href="{% url 'timeslot_edit' slot.pk %}" class="icon-btn icon-edit" title="Edit this time slot">

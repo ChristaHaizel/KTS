@@ -271,18 +271,31 @@ EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True) and not EMAIL_USE_SSL
 # longer than the host will wait for the response - so the page dies with no
 # explanation rather than reporting that the server did not answer.
 EMAIL_TIMEOUT = _env_int('EMAIL_TIMEOUT', 10)
-DEFAULT_FROM_EMAIL = os.environ.get(
-    'DEFAULT_FROM_EMAIL', 'KNUST Timetable System <no-reply@example.com>'
-)
-
 # Resend takes mail over HTTPS as well as SMTP, and this host blocks outbound
 # SMTP - port 587 times out rather than refusing, which is what blocked looks
 # like. Nothing blocks 443, so the API is preferred wherever a key is present.
 # The key is read from EMAIL_HOST_PASSWORD too, because that is where it lands
 # if Resend's SMTP instructions were followed first.
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
+SENDING_VIA_RESEND = bool(RESEND_API_KEY or EMAIL_HOST_PASSWORD.startswith('re_'))
 
-if RESEND_API_KEY or EMAIL_HOST_PASSWORD.startswith('re_'):
+# Who the mail comes from. A provider will only send from a domain you have
+# proved you own, so the placeholder below is refused by Resend outright - and
+# because a reset swallows delivery failures on purpose, being refused looks
+# exactly like no email having been sent at all.
+#
+# Resend keeps one address that works before any domain is verified, so that is
+# the fallback: reset emails arrive on the day the key is pasted in, and
+# setting DEFAULT_FROM_EMAIL to your own domain later changes nothing else.
+FALLBACK_FROM_EMAIL = (
+    'KNUST Timetable System <onboarding@resend.dev>' if SENDING_VIA_RESEND
+    else 'KNUST Timetable System <no-reply@example.com>'
+)
+DEFAULT_FROM_EMAIL = (
+    os.environ.get('DEFAULT_FROM_EMAIL', '').strip() or FALLBACK_FROM_EMAIL
+)
+
+if SENDING_VIA_RESEND:
     EMAIL_BACKEND = 'scheduler.mail.ResendBackend'
 elif EMAIL_HOST:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

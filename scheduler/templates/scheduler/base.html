@@ -1264,26 +1264,38 @@
                 border-top: 1px solid var(--line);
             }
             .data-table tbody tr:first-child { border-top: none; }
+            /* Two columns, both starting where the one above them started.
+               Pushing the value to the opposite edge instead leaves every
+               value beginning at a different place down the card, and the eye
+               has nothing to run down. */
             .data-table tbody td {
-                display: flex;
+                display: grid;
+                grid-template-columns: 116px minmax(0, 1fr);
                 align-items: baseline;
-                justify-content: space-between;
-                gap: var(--sp-4);
+                gap: var(--sp-3);
                 padding: 5px 0;
                 border: none;
+                text-align: left;
             }
             .data-table tbody td::before {
                 content: attr(data-label);
-                flex-shrink: 0;
                 font-size: 0.68rem;
                 font-weight: 600;
                 text-transform: uppercase;
                 letter-spacing: 0.6px;
                 color: var(--ink-faint);
             }
-            /* A cell with no label is the row's actions: it gets the full
-               width rather than a blank column where the label would be. */
-            .data-table tbody td:not([data-label]) { justify-content: flex-end; }
+            /* A cell with no label is the row's actions: it takes the whole
+               width rather than leaving a blank column where a label is not. */
+            .data-table tbody td:not([data-label]) { display: block; }
+            .data-table tbody .row-actions { justify-content: flex-start; }
+            /* A pill is sized by its text. As a grid item it would otherwise
+               stretch the width of the column and stop looking like a pill. */
+            .data-table tbody td > .day-badge,
+            .data-table tbody td > .status-badge,
+            .data-table tbody td > .btn-view-as,
+            .data-table tbody td > .btn-create-account,
+            .data-table tbody td > form { justify-self: start; }
             .data-table tbody tr:hover td { background: transparent; }
             .data-table .empty-state { display: block; text-align: center; }
             .data-table .empty-state::before { content: none; }

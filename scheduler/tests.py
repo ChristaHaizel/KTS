@@ -2540,6 +2540,26 @@ class EnvironmentSettingTests(SimpleTestCase):
             self._reload_settings(EMAIL_USE_TLS='maybe')
         self.assertIn('EMAIL_USE_TLS', str(caught.exception))
 
+    def test_resend_gets_a_from_address_it_will_actually_accept(self):
+        """A provider only sends from a domain you have proved you own, so the
+        placeholder is refused outright - and because a reset swallows delivery
+        failures on purpose, refused looks exactly like never sent."""
+        reloaded = self._reload_settings(EMAIL_HOST_PASSWORD='re_key')
+        self.assertIn('resend.dev', reloaded.DEFAULT_FROM_EMAIL)
+        self.assertNotIn('example.com', reloaded.DEFAULT_FROM_EMAIL)
+
+    def test_your_own_from_address_is_left_alone(self):
+        reloaded = self._reload_settings(
+            EMAIL_HOST_PASSWORD='re_key',
+            DEFAULT_FROM_EMAIL='KTS <no-reply@knust.edu.gh>')
+        self.assertEqual(reloaded.DEFAULT_FROM_EMAIL, 'KTS <no-reply@knust.edu.gh>')
+
+    def test_a_blank_from_address_does_not_become_the_sender(self):
+        """Cleared in a dashboard leaves the key behind with an empty value,
+        and an empty from address is refused by every provider there is."""
+        self.assertTrue(
+            self._reload_settings(DEFAULT_FROM_EMAIL='').DEFAULT_FROM_EMAIL)
+
     def test_a_mail_host_with_stray_whitespace_still_counts_as_configured(self):
         """A trailing space would otherwise leave EMAIL_HOST truthy but the
         connection pointed at a host that does not resolve."""

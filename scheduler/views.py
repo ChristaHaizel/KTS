@@ -358,9 +358,15 @@ def my_account(request):
         'email_form': email_form,
         'password_form': password_form,
         'previewing': previewing,
-        'mail_is_configured': bool(settings.EMAIL_HOST),
+        'mail_is_configured': (bool(settings.EMAIL_HOST)
+                               or settings.EMAIL_BACKEND.endswith('ResendBackend')),
         'mail_summary': _mail_settings_summary(),
         'mail_from': settings.DEFAULT_FROM_EMAIL,
+        # Resend will deliver from its own address to the account holder before
+        # any domain is verified, and to nobody else. Worth saying plainly:
+        # everything looks configured, your own test arrives, and every student
+        # is quietly refused.
+        'mail_from_is_borrowed': 'resend.dev' in settings.DEFAULT_FROM_EMAIL,
     })
 
 

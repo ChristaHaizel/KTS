@@ -2641,6 +2641,86 @@ class EnvironmentSettingTests(SimpleTestCase):
         self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
 
 
+class SecondSubmissionTests(TestCase):
+    """Pressing "Set password" twice told people the opposite of what happened.
+
+    A reset link is spent the moment the first submission succeeds. A double
+    tap - or a second press because a sleeping host made the first look
+    ignored - arrives at a token that is already gone, and the page for an
+    expired link is what comes back. The password had been changed. The person
+    was told to go and request another link, which could only undo it.
+    """
+
+    def setUp(self):
+        self.student = Student.objects.create(
+            student_id='20512099', name='Ama', email='ama@st.knust.edu.gh')
+        create_student_account(self.student)
+        self.student.refresh_from_db()
+        self.user = self.student.user
+        self.new_password = 'Kumasi!2026pass'
+
+    def _form_url(self):
+        self.client.post('/password-reset/', {'email': self.user.email})
+        link = re.search(r'https?://[^/]+(/password-reset/[^/\s]+/[^/\s]+/)',
+                         mail.outbox[0].body).group(1)
+        return self.client.get(link, follow=True).redirect_chain[-1][0]
+
+    def _submit(self, url):
+        return self.client.post(url, {'new_password1': self.new_password,
+                                      'new_password2': self.new_password})
+
+    def test_the_first_submission_works(self):
+        response = self._submit(self._form_url())
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.new_password))
+
+    def test_a_second_submission_does_not_undo_the_first(self):
+        """It cannot be made to succeed - the token is genuinely spent - so
+        what matters is that the password stays changed."""
+        url = self._form_url()
+        self._submit(url)
+        self._submit(url)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.new_password))
+
+    def test_the_expired_page_tells_them_to_try_signing_in_first(self):
+        """The page they land on is the one for an expired link, and the
+        obvious advice on it - request another link - is the one instruction
+        that cannot help someone whose password has just been set."""
+        url = self._form_url()
+        self._submit(url)
+        body = self._submit(url).content.decode()
+
+        self.assertIn('it worked', body)
+        self.assertIn('Try', body)
+        self.assertIn('signing in', body)
+
+    def test_the_form_guards_against_the_second_press(self):
+        """The wording is the safety net. This is the fix: the browser is told
+        not to send the second submission at all."""
+        body = self.client.get(self._form_url()).content.decode()
+        self.assertIn('data-busy', body)
+        self.assertIn('form-busy.js', body)
+
+    def test_every_form_that_can_be_pressed_twice_is_guarded(self):
+        """Signing in, asking for a link, setting a password, and the three on
+        My Account - all of them slow enough on a sleeping host to invite a
+        second press."""
+        self.user.email = 'ama@st.knust.edu.gh'
+        self.user.save()
+
+        pages = ['/login/', '/password-reset/', self._form_url()]
+        for url in pages:
+            with self.subTest(url=url):
+                self.assertIn('data-busy', self.client.get(url).content.decode())
+
+        self.client.force_login(self.user)
+        account = self.client.get('/account/').content.decode()
+        self.assertEqual(account.count('<form method="post" data-busy>'), 2,
+                         'the email and password forms should both be guarded')
+
+
 class BrevoBackendTests(SimpleTestCase):
     """The provider that makes self-service resets possible without a domain.
 

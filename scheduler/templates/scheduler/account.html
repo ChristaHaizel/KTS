@@ -58,7 +58,7 @@
             <p class="card-lede">
                 Used only to send you a password reset link. Nothing else is sent here.
             </p>
-            <form method="post">
+            <form method="post" data-busy>
                 {% csrf_token %}
                 <div class="mb-3">
                     <label class="form-label" for="id_email">Email address</label>
@@ -103,7 +103,7 @@
                 their own password without you reading the log to them.
             </div>
             {% endif %}
-            <form method="post">
+            <form method="post" data-busy>
                 {% csrf_token %}
                 <button type="submit" name="test_email" class="btn btn-kts-outline"
                         {% if previewing %}disabled{% endif %}>
@@ -131,7 +131,7 @@
             </div>
             {% endif %}
 
-            <form method="post">
+            <form method="post" data-busy>
                 {% csrf_token %}
                 <div class="mb-3">
                     <label class="form-label" for="id_old_password">Current password</label>

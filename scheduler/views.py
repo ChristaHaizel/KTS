@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -48,6 +48,17 @@ PAGE_SIZE = 25
 def _paginate(request, queryset):
     """Fine at fifteen courses, necessary at five hundred."""
     return Paginator(queryset, PAGE_SIZE).get_page(request.GET.get('page'))
+
+
+def _search_fields(kind):
+    """What a search on this page looks through.
+
+    Held here rather than at each call site because the suggestions dropdown
+    searches the same records, and two lists of field names maintained apart
+    would eventually disagree - typing something that suggests nothing and
+    then finds it on submit, or the reverse.
+    """
+    return SEARCHES[kind]['fields']
 
 
 def _list_context(request, queryset, fields, name):
@@ -525,6 +536,108 @@ def notifications_mark_read(request):
 # Emptying a table takes rows in other tables with it. Each entry names what
 # else goes, and the counts are worked out live rather than described in prose,
 # so the confirmation says what will actually happen to this database.
+def _student_detail(student):
+    parts = [student.student_id]
+    if student.programme:
+        parts.append(student.programme)
+    if student.level:
+        parts.append(student.get_level_display())
+    return ' - '.join(parts)
+
+
+# Everything a search knows about a kind of record: what to look through, what
+# to show in the suggestions, and where a suggestion leads. The list pages read
+# their search fields from here too, so the two cannot drift apart.
+SEARCHES = {
+    'lecturers': {
+        'fields': ['name', 'email', 'user__username'],
+        'queryset': lambda: Lecturer.objects.all().order_by('name'),
+        'label': lambda o: o.name,
+        'detail': lambda o: o.email,
+        'edit': 'lecturer_edit',
+    },
+    'courses': {
+        'fields': ['code', 'name', 'lecturer__name', 'lecturer__email'],
+        'queryset': lambda: Course.objects.select_related('lecturer').order_by('code'),
+        'label': lambda o: f'{o.code} - {o.name}',
+        'detail': lambda o: o.lecturer.name if o.lecturer else 'No lecturer',
+        'edit': 'course_edit',
+    },
+    'rooms': {
+        'fields': ['name'],
+        'queryset': lambda: Room.objects.all().order_by('name'),
+        'label': lambda o: o.name,
+        'detail': lambda o: f'{o.capacity} seats',
+        'edit': 'room_edit',
+    },
+    'groups': {
+        'fields': ['name', 'courses__code', 'courses__name'],
+        'queryset': lambda: StudentGroup.objects.all().order_by('name'),
+        'label': lambda o: o.name,
+        'detail': lambda o: f'{o.students.count()} student(s)',
+        'edit': 'studentgroup_edit',
+    },
+    'students': {
+        'fields': ['student_id', 'index_number', 'name', 'programme', 'level',
+                   'group__name'],
+        'queryset': lambda: Student.objects.select_related('group').order_by('name'),
+        'label': lambda o: o.name,
+        'detail': _student_detail,
+        'edit': 'student_edit',
+    },
+    'colleges': {
+        'fields': ['name'],
+        'queryset': lambda: College.objects.all().order_by('name'),
+        'label': lambda o: o.name,
+        'detail': lambda o: f'{o.departments.count()} department(s)',
+        'edit': 'college_edit',
+    },
+    'departments': {
+        'fields': ['name', 'college__name'],
+        'queryset': lambda: Department.objects.select_related('college'),
+        'label': lambda o: o.name,
+        'detail': lambda o: o.college.name,
+        'edit': 'department_edit',
+    },
+}
+
+# Enough to be worth having, few enough to read without scrolling.
+SUGGESTION_LIMIT = 8
+
+
+@login_required
+@admin_required
+def search_suggestions(request, kind):
+    """Records matching what has been typed so far, as JSON.
+
+    Same records and the same fields as the search on the page, so what is
+    offered here is what pressing Enter would find.
+    """
+    if kind not in SEARCHES:
+        raise Http404
+
+    spec = SEARCHES[kind]
+    term = (request.GET.get('q') or '').strip()
+    if len(term) < 2:
+        # One character matches most of the table and suggests nothing useful.
+        return JsonResponse({'results': []})
+
+    condition = Q()
+    for field in spec['fields']:
+        condition |= Q(**{f'{field}__icontains': term})
+
+    matches = spec['queryset']().filter(condition).distinct()[:SUGGESTION_LIMIT]
+
+    return JsonResponse({'results': [
+        {
+            'label': spec['label'](obj),
+            'detail': spec['detail'](obj),
+            'url': reverse(spec['edit'], args=[obj.pk]),
+        }
+        for obj in matches
+    ]})
+
+
 BULK_DELETE = {
     'lecturers': {
         'model': Lecturer, 'label': 'lecturers', 'redirect': 'lecturers',
@@ -684,9 +797,7 @@ def data_import_template(request, kind):
 def student_list(request):
     students = Student.objects.select_related('group', 'user').order_by('student_id')
     return render(request, 'scheduler/students.html', _list_context(
-        request, students,
-        ['student_id', 'index_number', 'name', 'programme', 'level', 'group__name'],
-        'students',
+        request, students, _search_fields('students'), 'students',
     ))
 
 @login_required
@@ -934,7 +1045,7 @@ def reject_reschedule(request, pk):
 def lecturer_list(request):
     lecturers = Lecturer.objects.select_related('user').order_by('name')
     return render(request, 'scheduler/lecturers.html', _list_context(
-        request, lecturers, ['name', 'email', 'user__username'], 'lecturers',
+        request, lecturers, _search_fields('lecturers'), 'lecturers',
     ))
 
 @login_required
@@ -956,8 +1067,7 @@ def lecturer_edit(request, pk=None):
 def course_list(request):
     courses = Course.objects.select_related('lecturer').order_by('code')
     return render(request, 'scheduler/courses.html', _list_context(
-        request, courses, ['code', 'name', 'lecturer__name', 'lecturer__email'],
-        'courses',
+        request, courses, _search_fields('courses'), 'courses',
     ))
 
 @login_required
@@ -1036,7 +1146,7 @@ def course_delete(request, pk):
 def college_list(request):
     colleges = College.objects.annotate(department_count=Count('departments'))
     return render(request, 'scheduler/colleges.html', _list_context(
-        request, colleges, ['name'], 'colleges',
+        request, colleges, _search_fields('colleges'), 'colleges',
     ))
 
 
@@ -1074,7 +1184,7 @@ def department_list(request):
                    .select_related('college')
                    .annotate(student_count=Count('students')))
     return render(request, 'scheduler/departments.html', _list_context(
-        request, departments, ['name', 'college__name'], 'departments',
+        request, departments, _search_fields('departments'), 'departments',
     ))
 
 
@@ -1118,7 +1228,7 @@ def department_delete(request, pk):
 def room_list(request):
     rooms = Room.objects.all().order_by('name')
     return render(request, 'scheduler/rooms.html', _list_context(
-        request, rooms, ['name'], 'rooms',
+        request, rooms, _search_fields('rooms'), 'rooms',
     ))
 
 @login_required
@@ -1153,7 +1263,7 @@ def studentgroup_list(request):
               .prefetch_related('courses')
               .annotate(enrolled_count=Count('students')))
     return render(request, 'scheduler/studentgroups.html', _list_context(
-        request, groups, ['name', 'courses__code', 'courses__name'], 'groups',
+        request, groups, _search_fields('groups'), 'groups',
     ))
 
 @login_required

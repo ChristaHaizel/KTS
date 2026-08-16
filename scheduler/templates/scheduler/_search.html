@@ -1,14 +1,28 @@
 {% comment %}
 A GET form, so a search is a URL: shareable, bookmarkable, and surviving a
 refresh or the back button.
+
+suggest_kind turns on the live suggestions. Without it the field is a plain
+search box, which is what it falls back to anyway if the script does not run.
 {% endcomment %}
-<form method="get" class="search-bar" role="search">
+<form method="get" class="search-bar" role="search" autocomplete="off">
     <div class="search-field">
         <i class="bi bi-search search-icon" aria-hidden="true"></i>
         <input type="search" name="q" value="{{ search_term }}"
                class="form-control search-input"
                placeholder="{{ placeholder }}"
-               aria-label="{{ placeholder }}">
+               aria-label="{{ placeholder }}"
+               {% if suggest_kind %}
+               data-suggest-url="{% url 'search_suggestions' suggest_kind %}"
+               role="combobox"
+               aria-expanded="false"
+               aria-autocomplete="list"
+               aria-controls="search-suggestions"
+               {% endif %}>
+        {% if suggest_kind %}
+        <ul class="search-suggestions" id="search-suggestions" role="listbox"
+            aria-label="Matching records"></ul>
+        {% endif %}
     </div>
     <button type="submit" class="btn btn-kts-primary">Search</button>
     {% if search_term %}

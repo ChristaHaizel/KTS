@@ -105,6 +105,36 @@ class StudentActivationForm(forms.Form):
         return cleaned
 
 
+class RequireAllMixin:
+    """Make every listed field mandatory on the form only.
+
+    The models stay permissive on purpose. A CSV from the faculty office
+    arrives with whatever it arrives with, and rejecting six hundred rows
+    because forty lack an index number would be worse than holding them.
+    Someone typing a record in one at a time has all of it in front of them,
+    so this is where completeness is worth insisting on.
+    """
+
+    require = ()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.require:
+            field = self.fields[name]
+            field.required = True
+
+            # A select whose first option is a row of dashes reads as a
+            # legitimate answer. Saying "Choose one" makes the blank look like
+            # what it is - and the two kinds of select say it differently.
+            if isinstance(field, forms.ModelChoiceField):
+                field.empty_label = 'Choose one'
+            elif isinstance(field, forms.ChoiceField):
+                field.choices = [
+                    (value, 'Choose one' if value == '' else label)
+                    for value, label in field.choices
+                ]
+
+
 class CollegeForm(forms.ModelForm):
     class Meta:
         model = College
@@ -129,7 +159,11 @@ class DepartmentForm(forms.ModelForm):
         }
 
 
-class LecturerForm(forms.ModelForm):
+class LecturerForm(RequireAllMixin, forms.ModelForm):
+    # The login account stays optional: it is a link to something that may not
+    # exist yet, not a fact about the lecturer.
+    require = ('name', 'email')
+
     class Meta:
         model = Lecturer
         fields = ['name', 'email', 'user']
@@ -236,14 +270,24 @@ class MyEmailForm(forms.Form):
         return email
 
 
-class StudentForm(forms.ModelForm):
+class StudentForm(RequireAllMixin, forms.ModelForm):
     """Programme is not on this form: a department is what sets it.
 
     Leaving both would let them disagree, and the one that survives on the
     student's own account is the department. A student whose programme was
     imported as text and matches no department keeps that text - the field is
     still there, just not something to type into twice.
+
+    Everything else is mandatory. Two of them earn it beyond tidiness: without
+    an index number a student cannot set up their own account, and without an
+    email address there is nowhere to send the password if they do. A record
+    missing either is one the timetable office will have to service by hand.
     """
+
+    # The teaching group is not here: it is the one field that may genuinely
+    # not be known yet, and it is set again whenever groups are reorganised.
+    require = ('student_id', 'index_number', 'name', 'email', 'college',
+               'department', 'level')
 
     class Meta:
         model = Student
@@ -266,11 +310,10 @@ class StudentForm(forms.ModelForm):
         }
         help_texts = {
             'student_id': 'This is what they sign in with.',
-            'index_number': 'Optional, but a student needs it to set up their '
-                            'own account.',
-            'email': 'Needed only so they can reset their own password.',
+            'index_number': 'They need this to set up their own account.',
+            'email': 'Where their password goes when they set up an account.',
             'department': 'This is their programme.',
-            'group': 'The teaching group whose timetable is theirs.',
+            'group': 'Optional. The teaching group whose timetable is theirs.',
         }
 
     def clean(self):

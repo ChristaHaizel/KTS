@@ -918,6 +918,49 @@
             pointer-events: none;
         }
         .search-input { padding-left: 44px; }
+
+        /* Matching records, under the box. The field is a working search box
+           without any of this; these are a shortcut straight to a record. */
+        .search-suggestions {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 40;
+            margin: 0;
+            padding: 6px;
+            list-style: none;
+            max-height: 320px;
+            overflow-y: auto;
+            background: var(--surface);
+            border: 1.5px solid var(--line-strong);
+            border-radius: var(--r-inset);
+        }
+        .search-suggestions.open { display: block; }
+        .search-suggestion {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: var(--sp-3);
+            padding: 9px 14px;
+            border-radius: var(--r-pill);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        /* Hover and keyboard share one state, so arrowing down looks the same
+           as pointing at it. */
+        .search-suggestion.active { background: var(--kts-blue-tint); }
+        .suggestion-label { color: var(--ink); font-weight: 500; }
+        .search-suggestion.active .suggestion-label { color: var(--kts-blue); }
+        .suggestion-detail {
+            color: var(--ink-faint);
+            font-size: 0.78rem;
+            text-align: right;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         /* The platform clear cross does not match anything else here. */
         .search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
         .search-summary {
@@ -1517,5 +1560,6 @@
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
 <script src="{% static 'scheduler/nav-drawer.js' %}"></script>
 <script src="{% static 'scheduler/form-busy.js' %}"></script>
+<script src="{% static 'scheduler/search-suggest.js' %}"></script>
 </body>
 </html>

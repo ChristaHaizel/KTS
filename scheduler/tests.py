@@ -1674,8 +1674,16 @@ class StudentAdminPageTests(TestCase):
 
     def test_admin_can_add_a_student(self):
         group = StudentGroup.objects.first()
+        department = Department.objects.get(name='Computer Science')
         response = self.client.post('/students/add/', {
-            'student_id': '20599999', 'name': 'New Person', 'group': group.pk,
+            'student_id': '20599999',
+            'index_number': '7599999',
+            'name': 'New Person',
+            'email': 'new@st.knust.edu.gh',
+            'college': department.college.pk,
+            'department': department.pk,
+            'level': '400',
+            'group': group.pk,
         })
         self.assertEqual(response.status_code, 302)
         self.assertTrue(Student.objects.filter(student_id='20599999').exists())
@@ -2646,6 +2654,167 @@ class EnvironmentSettingTests(SimpleTestCase):
         connection and then goes quiet would otherwise hold the worker until
         the operating system gave up, killing the page with no explanation."""
         self.assertLessEqual(self._reload_settings().EMAIL_TIMEOUT, 30)
+
+
+class MandatoryFieldTests(TestCase):
+    """Typing a record in one at a time means having all of it to hand.
+
+    Two of these earn it beyond tidiness: without an index number a student
+    cannot set up their own account, and without an email address there is
+    nowhere to send the password if they do.
+    """
+
+    def setUp(self):
+        self.client.force_login(make_admin())
+        self.department = Department.objects.get(name='Computer Science')
+        self.group = StudentGroup.objects.create(name='CS Level 400')
+
+    def _student_payload(self, **overrides):
+        payload = {
+            'student_id': '20212007',
+            'index_number': '7212007',
+            'name': 'Adjoa Mensimah',
+            'email': 'adjoa@st.knust.edu.gh',
+            'college': self.department.college.pk,
+            'department': self.department.pk,
+            'level': '400',
+            'group': self.group.pk,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_a_complete_student_is_accepted(self):
+        response = self.client.post('/students/add/', self._student_payload())
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(Student.objects.filter(student_id='20212007').exists())
+
+    def test_each_required_field_is_actually_required(self):
+        for field in ['student_id', 'index_number', 'name', 'email', 'college',
+                      'department', 'level']:
+            with self.subTest(field=field):
+                response = self.client.post(
+                    '/students/add/', self._student_payload(**{field: ''}))
+                self.assertEqual(response.status_code, 200,
+                                 f'{field} was accepted empty')
+                self.assertFalse(Student.objects.filter(student_id='20212007').exists())
+
+    def test_the_teaching_group_is_still_optional(self):
+        """The one field that may genuinely not be known yet."""
+        response = self.client.post('/students/add/', self._student_payload(group=''))
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(Student.objects.get(student_id='20212007').group)
+
+    def test_a_lecturer_needs_a_name_and_an_email(self):
+        for field in ['name', 'email']:
+            with self.subTest(field=field):
+                payload = {'name': 'Dr Mensah', 'email': 'm@knust.edu.gh'}
+                payload[field] = ''
+                response = self.client.post('/lecturers/add/', payload)
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(Lecturer.objects.exists())
+
+    def test_a_lecturers_login_account_is_still_optional(self):
+        """It is a link to something that may not exist yet, not a fact about
+        the lecturer."""
+        response = self.client.post('/lecturers/add/',
+                                    {'name': 'Dr Mensah', 'email': 'm@knust.edu.gh'})
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(Lecturer.objects.get().user)
+
+    def test_the_import_is_not_held_to_the_same_standard(self):
+        """A file from the faculty office arrives with whatever it arrives
+        with. Rejecting hundreds of rows over a missing index number would be
+        worse than holding them."""
+        result = run_import('students', csv_upload(
+            'student_id,name\n20212099,Kofi Owusu\n'))
+        self.assertEqual(result.created, 1)
+        student = Student.objects.get(student_id='20212099')
+        self.assertIsNone(student.index_number)
+        self.assertEqual(student.email, '')
+
+
+class SearchSuggestionTests(TestCase):
+    """Records matching what has been typed, under the search box."""
+
+    def setUp(self):
+        build_dataset()
+        self.client.force_login(make_admin())
+        self.student = Student.objects.create(
+            student_id='20212007', index_number='7212007', name='Adjoa Mensimah',
+            department=Department.objects.get(name='Computer Science'), level='400')
+
+    def _suggest(self, kind, term):
+        response = self.client.get(f'/suggest/{kind}/', {'q': term})
+        self.assertEqual(response.status_code, 200)
+        return response.json()['results']
+
+    def test_it_finds_a_student_by_name(self):
+        results = self._suggest('students', 'Adjoa')
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['label'], 'Adjoa Mensimah')
+        self.assertIn('20212007', results[0]['detail'])
+        self.assertEqual(results[0]['url'], f'/students/{self.student.pk}/edit/')
+
+    def test_it_finds_a_student_by_the_numbers_too(self):
+        for term in ['20212007', '7212007']:
+            with self.subTest(term=term):
+                self.assertEqual(len(self._suggest('students', term)), 1)
+
+    def test_one_character_suggests_nothing(self):
+        """It would match most of the table and help nobody."""
+        self.assertEqual(self._suggest('students', 'a'), [])
+
+    def test_it_offers_what_pressing_enter_would_find(self):
+        """The dropdown and the page search read the same field list, so a
+        suggestion cannot promise something the search will not return."""
+        term = 'Adjoa'
+        suggested = {r['label'] for r in self._suggest('students', term)}
+        listed = {s.name for s in
+                  self.client.get('/students/', {'q': term}).context['students']}
+        self.assertEqual(suggested, listed)
+
+    def test_every_searchable_page_can_suggest(self):
+        for kind in ['lecturers', 'courses', 'rooms', 'groups', 'students',
+                     'colleges', 'departments']:
+            with self.subTest(kind=kind):
+                response = self.client.get(f'/suggest/{kind}/', {'q': 'co'})
+                self.assertEqual(response.status_code, 200)
+
+    def test_the_list_pages_ask_for_suggestions(self):
+        pages = {
+            '/lecturers/': 'lecturers', '/courses/': 'courses',
+            '/rooms/': 'rooms', '/student-groups/': 'groups',
+            '/students/': 'students', '/colleges/': 'colleges',
+            '/departments/': 'departments',
+        }
+        for url, kind in pages.items():
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn(f'/suggest/{kind}/', body)
+                self.assertIn('search-suggest.js', body)
+
+    def test_it_never_offers_more_than_it_promises(self):
+        for i in range(20):
+            Student.objects.create(student_id=f'2021{i:04d}', name=f'Kofi Test {i}')
+        self.assertLessEqual(len(self._suggest('students', 'Kofi')), 8)
+
+    def test_an_unknown_kind_is_not_a_search(self):
+        self.assertEqual(self.client.get('/suggest/passwords/', {'q': 'ab'}).status_code,
+                         404)
+
+    def test_it_is_not_open_to_anyone_signed_out(self):
+        """The list pages are administrator-only, and this returns the same
+        records - it would be a way around them otherwise."""
+        self.client.logout()
+        response = self.client.get('/suggest/students/', {'q': 'Adjoa'})
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_a_student_cannot_use_it_to_read_the_roster(self):
+        create_student_account(self.student)
+        self.student.refresh_from_db()
+        self.client.force_login(self.student.user)
+        response = self.client.get('/suggest/students/', {'q': 'Adjoa'})
+        self.assertNotEqual(response.status_code, 200)
 
 
 class CollegeDepartmentTests(TestCase):
@@ -4115,6 +4284,7 @@ class StudentFieldTests(TestCase):
             'student_id': '20212007',
             'index_number': '7212007',
             'name': 'Adjoa Mensimah',
+            'email': 'adjoa@st.knust.edu.gh',
             'college': department.college.pk,
             'department': department.pk,
             'level': '400',
@@ -4127,14 +4297,18 @@ class StudentFieldTests(TestCase):
         self.assertEqual(student.level, '400')
         self.assertEqual(student.group, self.group)
 
-    def test_only_the_student_id_is_required(self):
-        self.client.post('/students/add/', {
-            'student_id': '20212008', 'index_number': '', 'name': 'Nana Yaw',
-            'programme': '', 'level': '', 'group': '',
-        })
-        student = Student.objects.get(student_id='20212008')
+    def test_a_record_may_still_hold_only_a_student_id(self):
+        """The form insists on more, because somebody typing one record in has
+        all of it to hand. The model does not, because an import has to take
+        the roster as it comes - so this goes at the model rather than through
+        the form that used to allow it.
+        """
+        student = Student.objects.create(student_id='20212008', name='Nana Yaw',
+                                         index_number='')
+        student.refresh_from_db()
         self.assertIsNone(student.index_number)
         self.assertEqual(student.programme, '')
+        self.assertEqual(student.email, '')
 
     def test_blank_index_numbers_do_not_collide(self):
         """Two empty strings break a unique constraint where two NULLs do not."""

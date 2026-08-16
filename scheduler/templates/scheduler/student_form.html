@@ -14,43 +14,43 @@
                 {% csrf_token %}
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
-                        <label class="form-label">Student ID</label>
+                        <label class="form-label">Student ID<span class="required-mark" aria-hidden="true">*</span></label>
                         {{ form.student_id }}
                         <div class="form-hint small mt-1">{{ form.student_id.help_text }}</div>
                         {% if form.student_id.errors %}<div class="text-danger small mt-1">{{ form.student_id.errors|join:", " }}</div>{% endif %}
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Index number</label>
+                        <label class="form-label">Index number<span class="required-mark" aria-hidden="true">*</span></label>
                         {{ form.index_number }}
                         <div class="form-hint small mt-1">{{ form.index_number.help_text }}</div>
                         {% if form.index_number.errors %}<div class="text-danger small mt-1">{{ form.index_number.errors|join:", " }}</div>{% endif %}
                     </div>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Full Name</label>
+                    <label class="form-label">Full Name<span class="required-mark" aria-hidden="true">*</span></label>
                     {{ form.name }}
                     {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">Email</label>
+                    <label class="form-label">Email<span class="required-mark" aria-hidden="true">*</span></label>
                     {{ form.email }}
                     <div class="form-hint small mt-1">{{ form.email.help_text }}</div>
                     {% if form.email.errors %}<div class="text-danger small mt-1">{{ form.email.errors|join:", " }}</div>{% endif %}
                 </div>
                 <div class="mb-3">
-                    <label class="form-label" for="id_college">College</label>
+                    <label class="form-label" for="id_college">College<span class="required-mark" aria-hidden="true">*</span></label>
                     {{ form.college }}
                     {% if form.college.errors %}<div class="text-danger small mt-1">{{ form.college.errors|join:", " }}</div>{% endif %}
                 </div>
                 <div class="row g-3 mb-3">
                     <div class="col-md-8">
-                        <label class="form-label" for="id_department">Department</label>
+                        <label class="form-label" for="id_department">Department<span class="required-mark" aria-hidden="true">*</span></label>
                         {{ form.department }}
                         <div class="form-hint small mt-1">{{ form.department.help_text }}</div>
                         {% if form.department.errors %}<div class="text-danger small mt-1">{{ form.department.errors|join:", " }}</div>{% endif %}
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Level</label>
+                        <label class="form-label">Level<span class="required-mark" aria-hidden="true">*</span></label>
                         {{ form.level }}
                         {% if form.level.errors %}<div class="text-danger small mt-1">{{ form.level.errors|join:", " }}</div>{% endif %}
                     </div>

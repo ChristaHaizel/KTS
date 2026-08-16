@@ -1,5 +1,6 @@
 import csv
 import logging
+import re
 
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import get_user_model, update_session_auth_hash
@@ -604,6 +605,38 @@ SEARCHES = {
 # Enough to be worth having, few enough to read without scrolling.
 SUGGESTION_LIMIT = 8
 
+# Ranking happens in Python, so more than the eight shown have to be fetched -
+# otherwise the database picks the eight and the ordering only rearranges an
+# arbitrary handful. Small enough to stay cheap on a table of hundreds.
+CANDIDATE_POOL = 60
+
+_WORD_BOUNDARY = re.compile(r'[\s\-,/()]+')
+
+# Almost every lecturer's name starts with one of these, so left in place they
+# rank as the name: searching "m" would offer every Mr and Ms before Mensah.
+_HONORIFIC = re.compile(r'^(dr|prof|mr|mrs|ms|miss|rev)\.?\s+', re.IGNORECASE)
+
+
+def _match_rank(label, detail, term):
+    """How well a record answers what has been typed, best first.
+
+    Typing "a" should bring up the people whose names start with A, not
+    everyone with an A anywhere in them - so a match at the front of a name
+    outranks a match at the front of a word, which outranks a match buried
+    somewhere in the middle. Alphabetical within each band, so the order does
+    not reshuffle itself as more letters arrive.
+    """
+    label, detail, term = label.lower(), (detail or '').lower(), term.lower()
+    name = _HONORIFIC.sub('', label)
+
+    if name.startswith(term):
+        return (0, name)
+    if any(word.startswith(term) for word in _WORD_BOUNDARY.split(name)):
+        return (1, name)
+    if any(word.startswith(term) for word in _WORD_BOUNDARY.split(detail)):
+        return (2, name)
+    return (3, name)
+
 
 @login_required
 @admin_required
@@ -611,31 +644,35 @@ def search_suggestions(request, kind):
     """Records matching what has been typed so far, as JSON.
 
     Same records and the same fields as the search on the page, so what is
-    offered here is what pressing Enter would find.
+    offered here is what pressing Enter would find. The ordering differs: the
+    page lists everything in its own order, this puts the likeliest first
+    because only eight of them fit.
     """
     if kind not in SEARCHES:
         raise Http404
 
     spec = SEARCHES[kind]
     term = (request.GET.get('q') or '').strip()
-    if len(term) < 2:
-        # One character matches most of the table and suggests nothing useful.
+    if not term:
         return JsonResponse({'results': []})
 
     condition = Q()
     for field in spec['fields']:
         condition |= Q(**{f'{field}__icontains': term})
 
-    matches = spec['queryset']().filter(condition).distinct()[:SUGGESTION_LIMIT]
+    candidates = spec['queryset']().filter(condition).distinct()[:CANDIDATE_POOL]
 
-    return JsonResponse({'results': [
+    rows = [
         {
             'label': spec['label'](obj),
             'detail': spec['detail'](obj),
             'url': reverse(spec['edit'], args=[obj.pk]),
         }
-        for obj in matches
-    ]})
+        for obj in candidates
+    ]
+    rows.sort(key=lambda row: _match_rank(row['label'], row['detail'], term))
+
+    return JsonResponse({'results': rows[:SUGGESTION_LIMIT]})
 
 
 BULK_DELETE = {

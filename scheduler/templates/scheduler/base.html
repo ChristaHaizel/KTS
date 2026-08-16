@@ -920,9 +920,16 @@
         .search-input { padding-left: 44px; }
 
         /* Matching records, under the box. The field is a working search box
-           without any of this; these are a shortcut straight to a record. */
+           without any of this; these are a shortcut straight to a record.
+
+           Not display:none, which cannot be animated - so the list would
+           appear and vanish in one frame, on every keystroke. Visibility
+           keeps the closed list away from the pointer and the tab order, and
+           is deliberately left out of the transition: transitioned, it holds
+           its old value until the animation actually starts, so anything that
+           delays the first frame leaves an open list invisible. Opacity and
+           position do the moving; visibility just switches. */
         .search-suggestions {
-            display: none;
             position: absolute;
             top: calc(100% + 6px);
             left: 0;
@@ -936,8 +943,16 @@
             background: var(--surface);
             border: 1.5px solid var(--line-strong);
             border-radius: var(--r-inset);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-6px);
+            transition: opacity 0.13s ease, transform 0.13s ease;
         }
-        .search-suggestions.open { display: block; }
+        .search-suggestions.open {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
         .search-suggestion {
             display: flex;
             align-items: baseline;
@@ -947,12 +962,12 @@
             border-radius: var(--r-pill);
             font-size: 0.875rem;
             cursor: pointer;
+            transition: background-color 0.12s ease;
         }
         /* Hover and keyboard share one state, so arrowing down looks the same
            as pointing at it. */
         .search-suggestion.active { background: var(--kts-blue-tint); }
-        .suggestion-label { color: var(--ink); font-weight: 500; }
-        .search-suggestion.active .suggestion-label { color: var(--kts-blue); }
+        .suggestion-label { color: var(--kts-blue); font-weight: 600; }
         .suggestion-detail {
             color: var(--ink-faint);
             font-size: 0.78rem;
@@ -960,6 +975,18 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .search-suggestions, .search-suggestion { transition: none; }
+        }
+
+        /* Marks a field that will not be accepted empty. Decoration only: the
+           input carries its own required attribute, which is what a screen
+           reader announces, so this is hidden from one. */
+        .required-mark {
+            color: var(--danger);
+            margin-left: 3px;
+            font-weight: 700;
         }
         /* The platform clear cross does not match anything else here. */
         .search-input::-webkit-search-cancel-button { -webkit-appearance: none; }

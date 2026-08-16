@@ -11,9 +11,16 @@
 (function () {
     'use strict';
 
-    // Long enough that a pause reads as "finished typing", short enough not to
-    // feel like waiting.
-    var SETTLE_MS = 180;
+    // Just enough to collapse a burst of keystrokes into one request. Any
+    // longer and the list arrives after you have stopped typing rather than
+    // while you are, which is the difference between a list that keeps up and
+    // one you wait for.
+    var SETTLE_MS = 70;
+
+    // One character is a useful search here: it brings up the names starting
+    // with that letter, which is how you look someone up when you know how
+    // their name begins and not how it is spelled.
+    var MIN_LENGTH = 1;
 
     function wire(input) {
         var url = input.dataset.suggestUrl;
@@ -52,13 +59,16 @@
         }
 
         function show(results) {
-            list.innerHTML = '';
-            items = [];
-
             if (!results.length) {
                 close();
                 return;
             }
+
+            // Rebuilt into a fragment and swapped in one go, so the list never
+            // renders empty between one set of results and the next - that
+            // flash is most of what makes an as-you-type list feel jumpy.
+            var fragment = document.createDocumentFragment();
+            items = [];
 
             results.forEach(function (result, i) {
                 var item = document.createElement('li');
@@ -87,10 +97,11 @@
                 });
                 item.addEventListener('mouseenter', function () { highlight(i); });
 
-                list.appendChild(item);
+                fragment.appendChild(item);
                 items.push(item);
             });
 
+            list.replaceChildren(fragment);
             list.classList.add('open');
             input.setAttribute('aria-expanded', 'true');
             highlight(-1);
@@ -98,7 +109,7 @@
 
         function fetchSuggestions() {
             var term = input.value.trim();
-            if (term.length < 2) { close(); return; }
+            if (term.length < MIN_LENGTH) { close(); return; }
 
             var mine = ++latest;
             fetch(url + '?q=' + encodeURIComponent(term), {
@@ -121,6 +132,14 @@
         input.addEventListener('input', function () {
             window.clearTimeout(timer);
             timer = window.setTimeout(fetchSuggestions, SETTLE_MS);
+        });
+
+        // Coming back to a box that already has something in it should show
+        // what it matches, rather than needing a keystroke first.
+        input.addEventListener('focus', function () {
+            if (input.value.trim().length >= MIN_LENGTH && !items.length) {
+                fetchSuggestions();
+            }
         });
 
         input.addEventListener('keydown', function (event) {

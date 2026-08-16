@@ -2713,6 +2713,31 @@ class MandatoryFieldTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertFalse(Lecturer.objects.exists())
 
+    def test_the_required_fields_are_marked_on_screen(self):
+        """A field that will not be accepted empty should say so before it is
+        submitted, not after."""
+        body = self.client.get('/students/add/').content.decode()
+        self.assertEqual(body.count('class="required-mark"'), 7)
+
+        lecturer_page = self.client.get('/lecturers/add/').content.decode()
+        self.assertEqual(lecturer_page.count('class="required-mark"'), 2)
+
+    def test_the_optional_ones_are_not_marked(self):
+        body = self.client.get('/students/add/').content.decode()
+        group_label = body.split('Student group')[1][:120]
+        self.assertNotIn('required-mark', group_label)
+        self.assertIn('(optional)', group_label)
+
+    def test_the_browser_is_told_too(self):
+        """The asterisk is decoration. This is what a screen reader announces,
+        and what stops an empty form reaching the server at all."""
+        body = self.client.get('/students/add/').content.decode()
+        self.assertIn('required', body)
+        for field in ['id_college', 'id_department']:
+            with self.subTest(field=field):
+                markup = body.split(field)[1][:200]
+                self.assertIn('required', markup)
+
     def test_a_lecturers_login_account_is_still_optional(self):
         """It is a link to something that may not exist yet, not a fact about
         the lecturer."""
@@ -2760,9 +2785,43 @@ class SearchSuggestionTests(TestCase):
             with self.subTest(term=term):
                 self.assertEqual(len(self._suggest('students', term)), 1)
 
-    def test_one_character_suggests_nothing(self):
-        """It would match most of the table and help nobody."""
-        self.assertEqual(self._suggest('students', 'a'), [])
+    def test_one_letter_is_enough(self):
+        """Looking someone up starts with knowing how their name begins."""
+        Student.objects.create(student_id='20212010', name='Akosua Boateng')
+        results = self._suggest('students', 'a')
+        self.assertIn('Akosua Boateng', [r['label'] for r in results])
+
+    def test_names_starting_with_the_letter_come_first(self):
+        Student.objects.create(student_id='20212010', name='Akosua Boateng')
+        Student.objects.create(student_id='20212011', name='Kofi Amankwah')
+        Student.objects.create(student_id='20212012', name='Yaw Danso')
+
+        labels = [r['label'] for r in self._suggest('students', 'a')]
+        # Starts with A, then has a word starting with A, then merely contains
+        # one - "Yaw Danso" has two, neither of them at the front of anything.
+        self.assertLess(labels.index('Akosua Boateng'), labels.index('Kofi Amankwah'))
+        self.assertLess(labels.index('Kofi Amankwah'), labels.index('Yaw Danso'))
+
+    def test_the_order_is_stable_as_more_letters_arrive(self):
+        """A list that reshuffles under the pointer is worse than a slow one."""
+        for i, name in enumerate(['Ama Serwaa', 'Ama Boateng', 'Ama Darko']):
+            Student.objects.create(student_id=f'2021301{i}', name=name)
+        first = [r['label'] for r in self._suggest('students', 'am')]
+        second = [r['label'] for r in self._suggest('students', 'ama')]
+        self.assertEqual(first, second)
+
+    def test_a_title_is_not_treated_as_the_name(self):
+        """Almost every lecturer's name starts with one, so left in place
+        searching "m" offers every Mr and Ms before Mensah."""
+        Lecturer.objects.create(name='Dr. Kwame Mensah', email='kmensah@knust.edu.gh')
+        Lecturer.objects.create(name='Mr. Kofi Danso', email='kdanso@knust.edu.gh')
+
+        labels = [r['label'] for r in self._suggest('lecturers', 'm')]
+        self.assertLess(labels.index('Dr. Kwame Mensah'),
+                        labels.index('Mr. Kofi Danso'))
+
+    def test_an_empty_box_suggests_nothing(self):
+        self.assertEqual(self._suggest('students', ''), [])
 
     def test_it_offers_what_pressing_enter_would_find(self):
         """The dropdown and the page search read the same field list, so a

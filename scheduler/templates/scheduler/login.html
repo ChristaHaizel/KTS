@@ -156,6 +156,9 @@
             {% if door == 'student' %}
             First time here?
             <a href="{% url 'student_activate' %}">Set up your account</a><br>
+            {% elif door == 'lecturer' %}
+            First time here?
+            <a href="{% url 'lecturer_activate' %}">Set up your account</a><br>
             {% endif %}
             <a href="{% url 'login' %}">Not a {% if door == 'admin' %}timetable office{% else %}{{ door }}{% endif %} account?</a>
         </div>

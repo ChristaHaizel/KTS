@@ -1,0 +1,52 @@
+{% extends 'scheduler/auth_base.html' %}
+{% block title %}Set up your account - KTS{% endblock %}
+{% block extra_css %}
+        .field-error { color: var(--danger); font-size: 0.8rem; margin-top: 4px; }
+{% endblock %}
+{% block body %}
+<div class="auth-card">
+    <div class="auth-icon"><i class="bi bi-person-badge"></i></div>
+    <h4>Set up your account</h4>
+    <p class="auth-lede">
+        The timetable office already holds your record. This attaches a sign-in
+        to it and emails you a password.
+    </p>
+
+    {% if form.non_field_errors %}
+    <div class="alert login-alert">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" data-busy>
+        {% csrf_token %}
+
+        <div class="mb-3">
+            <label class="form-label" for="id_lecturer_id">Lecturer ID</label>
+            {{ form.lecturer_id }}
+            <div class="form-hint mt-1">{{ form.lecturer_id.help_text }}</div>
+            {% if form.lecturer_id.errors %}
+            <div class="field-error">{{ form.lecturer_id.errors|join:", " }}</div>
+            {% endif %}
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label" for="id_email">Email address</label>
+            {{ form.email }}
+            <div class="form-hint mt-1">{{ form.email.help_text }}</div>
+            {% if form.email.errors %}
+            <div class="field-error">{{ form.email.errors|join:", " }}</div>
+            {% endif %}
+        </div>
+
+        <button type="submit" class="btn-login" data-busy-label="Setting up...">
+            <span class="btn-spinner" aria-hidden="true"></span>
+            <span class="btn-label">Create my account</span>
+        </button>
+    </form>
+
+    <div class="auth-footer">
+        <a href="{% url 'lecturer_login' %}"><i class="bi bi-arrow-left me-1"></i>Already have an account?</a>
+    </div>
+</div>
+{% endblock %}

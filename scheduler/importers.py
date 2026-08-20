@@ -96,7 +96,11 @@ ALIASES = {
         'teacheremail', 'instructor', 'instructoremail', 'email',
         'emailaddress',
     ],
-    # Index number is its own field now, so it must not be treated as another
+    'lecturer_id': [
+        'lecturerid', 'staffid', 'staffnumber', 'staffno', 'employeeid',
+        'employeeno', 'lecturernumber', 'lecturerno',
+    ],
+    # Index number is its own field, so it must not be treated as another
     # spelling of the student ID - the two numbers are different numbers.
     'student_id': [
         'studentid', 'id', 'studentnumber', 'studentno', 'referencenumber',
@@ -221,22 +225,59 @@ def _import_lecturers(rows, result):
         if not email:
             result.skipped.append(f'Row {line}: no email, so there is nothing to identify this lecturer by')
             continue
-        wanted[email] = (email, _clean(row.get('name')) or email.split('@')[0])
+        wanted[email] = (
+            email,
+            _clean(row.get('name')) or email.split('@')[0],
+            # Blank rather than absent is the common case - the column exists
+            # in the file and not every row has one filled in.
+            _clean(row.get('lecturer_id')),
+        )
 
     existing = {
         l.email.lower(): l
-        for l in Lecturer.objects.filter(email__in=[e for e, _ in wanted.values()])
+        for l in Lecturer.objects.filter(
+            email__in=[e for e, _name, _id in wanted.values()])
     }
 
+    # A lecturer ID is unique, so one already held by somebody outside this
+    # import is dropped from the row rather than failing it - the rest of the
+    # record is still worth having, and the clash is reported.
+    ids = {i for _e, _n, i in wanted.values() if i}
+    owned_elsewhere = set(
+        Lecturer.objects
+        .filter(lecturer_id__in=ids)
+        .exclude(email__in=[e for e, _n, _i in wanted.values()])
+        .values_list('lecturer_id', flat=True)
+    )
+
     to_create, to_update = [], []
-    for key, (email, name) in wanted.items():
+    claimed = set()
+    for key, (email, name, lecturer_id) in wanted.items():
+        if lecturer_id and (lecturer_id in owned_elsewhere or lecturer_id in claimed):
+            result.skipped.append(
+                f'Lecturer ID "{lecturer_id}" already belongs to another '
+                f'lecturer, so it was left off {email}'
+            )
+            lecturer_id = ''
+        elif lecturer_id:
+            claimed.add(lecturer_id)
+
+        # bulk_create and bulk_update do not call save(), so the empty-string
+        # to NULL conversion that keeps the unique constraint happy has to
+        # happen here.
+        id_value = lecturer_id or None
+
         found = existing.get(key)
         if found is None:
-            to_create.append(Lecturer(email=email, name=name))
+            to_create.append(Lecturer(email=email, name=name, lecturer_id=id_value))
         else:
             found.name = name
+            # Only overwrite when the file supplies one. A blank column, or one
+            # dropped for clashing, must not erase the ID already on file.
+            if id_value:
+                found.lecturer_id = id_value
             to_update.append(found)
-    _apply(Lecturer, to_create, to_update, ['name'], result)
+    _apply(Lecturer, to_create, to_update, ['name', 'lecturer_id'], result)
 
 
 def _import_rooms(rows, result):
@@ -528,7 +569,7 @@ def _import_timeslots(rows, result):
 KINDS = {
     'lecturers': {
         'label': 'Lecturers',
-        'columns': ['name', 'email'],
+        'columns': ['lecturer_id', 'name', 'email'],
         # What makes a file this kind of file. Uploading rooms into Lecturers
         # fails here, which is the mistake worth catching.
         'identifies': ['email'],
@@ -538,10 +579,11 @@ KINDS = {
         'key': ('email',),
         'handler': _import_lecturers,
         'sample': [
-            ['Dr. Kwame Mensah', 'kmensah@knust.edu.gh'],
-            ['Prof. Ama Boateng', 'aboateng@knust.edu.gh'],
+            ['KNUST/CS/014', 'Dr. Kwame Mensah', 'kmensah@knust.edu.gh'],
+            ['KNUST/CS/021', 'Prof. Ama Boateng', 'aboateng@knust.edu.gh'],
         ],
-        'note': 'Matched on email. Re-uploading updates the name.',
+        'note': 'Matched on email. Re-uploading updates the name and ID. A '
+                'lecturer needs an ID before they can set up their own account.',
     },
     'rooms': {
         'label': 'Rooms',

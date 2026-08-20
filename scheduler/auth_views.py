@@ -1,4 +1,4 @@
-"""Signing in, and a student claiming the record already held for them.
+"""Signing in, and students and lecturers claiming records already held for them.
 
 Three doors rather than one. They are not a security measure - anyone can find
 the other two - and nothing here relies on people not knowing about them. What
@@ -15,10 +15,10 @@ from django.contrib import messages
 from django.contrib.auth import views as auth_views
 from django.core.mail import send_mail
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 
-from .accounts import create_student_account
-from .forms import StudentActivationForm
+from .accounts import create_lecturer_account, create_student_account
+from .forms import LecturerActivationForm, StudentActivationForm
 from .permissions import is_admin, lecturer_for, student_for
 
 logger = logging.getLogger(__name__)
@@ -140,36 +140,55 @@ def activate_student(request):
         user, password = create_student_account(student)
         logger.info('%s activated their own account', student.student_id)
 
-        if _send_password(student, password):
-            return render(request, 'scheduler/activation_sent.html',
-                          {'student': student})
+        sent = _send_password(
+            student.name, 'Student ID', student.student_id,
+            student.email, password,
+            'somebody has used your student ID and index number.',
+        )
+        if not sent:
+            # The account exists either way; only the delivery failed, and
+            # sending them back to the form would tell them to make a second.
+            logger.error('Could not email the new password for %s',
+                         student.student_id)
 
-        # The account exists either way; only the delivery failed, and sending
-        # them back to the form would tell them to make a second one.
-        logger.error('Could not email the new password for %s', student.student_id)
-        return render(request, 'scheduler/activation_sent.html',
-                      {'student': student, 'delivery_failed': True})
+        return render(request, 'scheduler/activation_sent.html', {
+            'name': student.name,
+            'email': student.email,
+            'identifier_label': 'student ID',
+            'identifier': student.student_id,
+            'sign_in_url': reverse('student_login'),
+            'delivery_failed': not sent,
+        })
 
     return render(request, 'scheduler/student_activate.html', {'form': form})
 
 
-def _send_password(student, password):
-    """Send the new password. Returns whether it went."""
+def _send_password(name, identifier_label, identifier, email, password, warning):
+    """Send a newly created password. Returns whether it went.
+
+    Shared by both activations, which differ only in what the person is called
+    and what they should be told if it was not them who asked.
+    """
+    message = "\n".join([
+        f"Hello {name},",
+        "",
+        "Your account is ready.",
+        "",
+        f"  {identifier_label}: {identifier}",
+        f"  Password: {password}",
+        "",
+        "Sign in and change your password from My Account once you are in.",
+        "",
+        f"If you did not ask for this, tell the timetable office - {warning}",
+        "",
+    ])
+
     try:
         send_mail(
-            subject='Your KNUST Timetable System account',
-            message=(
-                f'Hello {student.name},\n\n'
-                f'Your account is ready.\n\n'
-                f'  Student ID: {student.student_id}\n'
-                f'  Password:   {password}\n\n'
-                f'Sign in at the student page and change your password from My '
-                f'Account once you are in.\n\n'
-                f'If you did not ask for this, tell the timetable office - '
-                f'somebody has used your student ID and index number.\n'
-            ),
+            subject="Your KNUST Timetable System account",
+            message=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[student.email],
+            recipient_list=[email],
             fail_silently=False,
         )
         return True
@@ -177,5 +196,46 @@ def _send_password(student, password):
         # Everything, for the same reason the test-send catches everything: a
         # provider can refuse before a connection is even made, and the account
         # has already been created by this point.
-        logger.exception('Activation email to %s failed', student.student_id)
+        logger.exception("Activation email to %s failed", identifier)
         return False
+
+
+def activate_lecturer(request):
+    """First use: a lecturer proves who they are and gets an account.
+
+    The mirror of the student flow, with one difference that matters. A
+    student types in the address their password should go to; a lecturer's is
+    already on file and is what they are checked against, so the password goes
+    where the timetable office recorded it rather than where the form said.
+    Guessing a lecturer ID therefore gains nothing - the mail arrives in the
+    real lecturer's inbox.
+    """
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    form = LecturerActivationForm(request.POST or None)
+
+    if request.method == 'POST' and form.is_valid():
+        lecturer = form.cleaned_data['lecturer']
+        user, password = create_lecturer_account(lecturer)
+        logger.info('%s activated their own account', lecturer.lecturer_id)
+
+        sent = _send_password(
+            lecturer.name, 'Lecturer ID', lecturer.lecturer_id,
+            lecturer.email, password,
+            'somebody has used your lecturer ID.',
+        )
+        if not sent:
+            logger.error('Could not email the new password for %s',
+                         lecturer.lecturer_id)
+
+        return render(request, 'scheduler/activation_sent.html', {
+            'name': lecturer.name,
+            'email': lecturer.email,
+            'identifier_label': 'lecturer ID',
+            'identifier': lecturer.lecturer_id,
+            'sign_in_url': reverse('lecturer_login'),
+            'delivery_failed': not sent,
+        })
+
+    return render(request, 'scheduler/lecturer_activate.html', {'form': form})

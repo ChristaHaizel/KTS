@@ -14,13 +14,14 @@
     </div>
 </div>
 
-{% include 'scheduler/_search.html' with placeholder='Search by name, email or username' suggest_kind='lecturers' %}
+{% include 'scheduler/_search.html' with placeholder='Search by ID, name, email or username' suggest_kind='lecturers' %}
 
 <div class="kts-card flush">
     <div class="table-responsive">
         <table class="data-table">
             <thead>
                 <tr>
+                    <th>Lecturer ID</th>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Login account</th>
@@ -30,6 +31,7 @@
             <tbody>
                 {% for lecturer in lecturers %}
                 <tr>
+                    <td class="cell-accent" data-label="Lecturer ID">{% if lecturer.lecturer_id %}{{ lecturer.lecturer_id }}{% else %}<span class="text-faint">&mdash;</span>{% endif %}</td>
                     <td class="cell-primary" data-label="Name">{{ lecturer.name }}</td>
                     <td data-label="Email">{{ lecturer.email }}</td>
                     <td data-label="Login account">
@@ -65,7 +67,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="4" class="empty-state">
+                    <td colspan="5" class="empty-state">
                         <i class="bi bi-person-x"></i>
                         No lecturers yet. Click "Add Lecturer" to create one.
                     </td>

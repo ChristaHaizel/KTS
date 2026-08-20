@@ -34,6 +34,16 @@ class Room(models.Model):
         return f"{self.name} (cap: {self.capacity})"
 
 class Lecturer(models.Model):
+    # The staff number, and what a lecturer signs in with once they have set
+    # up an account. Nullable rather than required, because the lecturers
+    # already on file predate it and are given theirs one at a time - and
+    # several NULLs do not collide on a unique constraint where several empty
+    # strings would.
+    lecturer_id = models.CharField(
+        max_length=20, unique=True, null=True, blank=True,
+        verbose_name='Lecturer ID',
+        help_text='Their staff number. They need it to set up their own account.',
+    )
     name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
     # Nullable: a lecturer is primarily scheduling data, and most of them will
@@ -51,8 +61,16 @@ class Lecturer(models.Model):
     class Meta:
         ordering = ['name']
 
+    def save(self, *args, **kwargs):
+        # A form posts "" for an untouched optional field, and two empty
+        # strings collide on a unique constraint where two NULLs do not.
+        if not self.lecturer_id:
+            self.lecturer_id = None
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
+
 
 class Course(models.Model):
     code = models.CharField(max_length=20, unique=True)

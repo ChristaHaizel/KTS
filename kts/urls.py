@@ -21,6 +21,7 @@ urlpatterns = [
     path('lecturer/login/', kts_auth.LecturerLoginView.as_view(), name='lecturer_login'),
     path('office/login/', kts_auth.AdminLoginView.as_view(), name='admin_login'),
     path('student/activate/', kts_auth.activate_student, name='student_activate'),
+    path('lecturer/activate/', kts_auth.activate_lecturer, name='lecturer_activate'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
 
     path(

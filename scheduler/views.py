@@ -25,7 +25,7 @@ from .models import (
     TimeSlot, GenerationRun, Student, Notification, College, Department,
     day_ordering,
 )
-from .accounts import create_student_account, derive_username, generate_password
+from .accounts import create_lecturer_account, create_student_account
 from .baselines import compare
 from .charts import convergence_chart
 from .conflict_detector import detect_conflicts
@@ -551,7 +551,7 @@ def _student_detail(student):
 # their search fields from here too, so the two cannot drift apart.
 SEARCHES = {
     'lecturers': {
-        'fields': ['name', 'email', 'user__username'],
+        'fields': ['lecturer_id', 'name', 'email', 'user__username'],
         'queryset': lambda: Lecturer.objects.all().order_by('name'),
         'label': lambda o: o.name,
         'detail': lambda o: o.email,
@@ -1135,24 +1135,18 @@ def lecturer_create_account(request, pk):
         messages.warning(request, f'{lecturer.name} already has an account.')
         return redirect('lecturers')
 
-    User = get_user_model()
-    taken = set(User.objects.values_list('username', flat=True))
-    username = derive_username(lecturer.email, taken)
-    password = generate_password()
-
-    user = User.objects.create_user(
-        username=username, email=lecturer.email, password=password
-    )
-    lecturer.user = user
-    lecturer.save(update_fields=['user'])
+    # The same account-making as a lecturer setting one up themselves, so the
+    # username follows one rule rather than two: their lecturer ID where they
+    # have one, and a name derived from their email where they do not.
+    user, password = create_lecturer_account(lecturer)
 
     logger.info(
         'Login account %s created for lecturer %s by %s',
-        username, lecturer.name, request.user.username,
+        user.username, lecturer.name, request.user.username,
     )
     messages.success(
         request,
-        f'Account created for {lecturer.name} — username "{username}", '
+        f'Account created for {lecturer.name} — username "{user.username}", '
         f'password "{password}". This password is shown once and cannot be '
         f'recovered; pass it on securely and have them change it.',
     )

@@ -2,7 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from scheduler.accounts import derive_username, generate_password
+from scheduler.accounts import generate_password, lecturer_username
 from scheduler.models import Lecturer
 
 
@@ -36,7 +36,7 @@ class Command(BaseCommand):
         created = []
 
         for lecturer in pending:
-            username = derive_username(lecturer.email, taken)
+            username = lecturer_username(lecturer, taken)
             taken.add(username)
             password = generate_password()
 

@@ -2719,8 +2719,9 @@ class MandatoryFieldTests(TestCase):
         body = self.client.get('/students/add/').content.decode()
         self.assertEqual(body.count('class="required-mark"'), 7)
 
+        # Lecturer ID, name, email. The login account is not one of them.
         lecturer_page = self.client.get('/lecturers/add/').content.decode()
-        self.assertEqual(lecturer_page.count('class="required-mark"'), 2)
+        self.assertEqual(lecturer_page.count('class="required-mark"'), 3)
 
     def test_the_optional_ones_are_not_marked(self):
         body = self.client.get('/students/add/').content.decode()
@@ -2740,9 +2741,12 @@ class MandatoryFieldTests(TestCase):
 
     def test_a_lecturers_login_account_is_still_optional(self):
         """It is a link to something that may not exist yet, not a fact about
-        the lecturer."""
-        response = self.client.post('/lecturers/add/',
-                                    {'name': 'Dr Mensah', 'email': 'm@knust.edu.gh'})
+        the lecturer - and a lecturer can now make one themselves anyway."""
+        response = self.client.post('/lecturers/add/', {
+            'lecturer_id': 'KNUST/CS/014',
+            'name': 'Dr Mensah',
+            'email': 'm@knust.edu.gh',
+        })
         self.assertEqual(response.status_code, 302)
         self.assertIsNone(Lecturer.objects.get().user)
 
@@ -3218,6 +3222,230 @@ class StudentActivationTests(TestCase):
     def test_it_is_reachable_from_the_student_door(self):
         self.assertIn('/student/activate/',
                       self.client.get('/student/login/').content.decode())
+
+
+class LecturerActivationTests(TestCase):
+    """A lecturer claiming the record the timetable office already holds.
+
+    The pair is the lecturer ID and the address already on file. That the
+    address is checked rather than supplied is what makes this safe without a
+    third factor: the password goes where the timetable office recorded it, so
+    guessing an ID puts the mail in the real lecturer's inbox.
+    """
+
+    def setUp(self):
+        self.lecturer = Lecturer.objects.create(
+            lecturer_id='KNUST/CS/014', name='Dr. Kwame Mensah',
+            email='kmensah@knust.edu.gh')
+
+    def _activate(self, **overrides):
+        payload = {'lecturer_id': 'KNUST/CS/014', 'email': 'kmensah@knust.edu.gh'}
+        payload.update(overrides)
+        return self.client.post('/lecturer/activate/', payload)
+
+    def test_it_attaches_an_account_to_the_roster_record(self):
+        response = self._activate()
+        self.assertEqual(response.status_code, 200)
+
+        self.lecturer.refresh_from_db()
+        self.assertIsNotNone(self.lecturer.user)
+        self.assertEqual(self.lecturer.user.username, 'KNUST/CS/014')
+        self.assertEqual(self.lecturer.user.email, 'kmensah@knust.edu.gh')
+
+    def test_the_password_goes_to_the_address_on_file(self):
+        """Not to one the form supplied - there is no such field."""
+        self._activate()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['kmensah@knust.edu.gh'])
+
+    def test_the_emailed_password_is_the_one_that_works(self):
+        self._activate()
+        password = re.search(r'Password:\s+(\S+)', mail.outbox[0].body).group(1)
+        self.lecturer.refresh_from_db()
+        self.assertTrue(self.lecturer.user.check_password(password))
+
+    def test_a_guessed_id_with_a_different_address_gets_nowhere(self):
+        response = self._activate(email='attacker@example.com')
+        self.assertEqual(response.status_code, 200)
+        self.lecturer.refresh_from_db()
+        self.assertIsNone(self.lecturer.user)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_an_unknown_id_is_refused_the_same_way(self):
+        """Telling the two apart would turn this into a way of working out who
+        is on staff, and then of harvesting their addresses."""
+        unknown = self._activate(lecturer_id='KNUST/CS/999')
+        wrong_email = self._activate(email='someone@else.com')
+        needle = 'could not match those details'
+        self.assertIn(needle, unknown.content.decode())
+        self.assertIn(needle, wrong_email.content.decode())
+
+    def test_the_address_is_matched_whatever_the_case(self):
+        response = self._activate(email='KMensah@KNUST.edu.gh')
+        self.lecturer.refresh_from_db()
+        self.assertIsNotNone(self.lecturer.user, response.content.decode()[:400])
+
+    def test_a_lecturer_who_already_has_an_account_is_sent_to_sign_in(self):
+        self._activate()
+        mail.outbox.clear()
+        response = self._activate()
+        self.assertIn('already has an account', response.content.decode())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_a_lecturer_with_no_id_yet_cannot_be_claimed(self):
+        """The ones who predate the column. Until the timetable office gives
+        them an ID there is nothing to prove with, and a blank must not match
+        a blank."""
+        Lecturer.objects.create(name='Dr. Efua Sarpong', email='esarpong@knust.edu.gh')
+        response = self.client.post('/lecturer/activate/', {
+            'lecturer_id': '', 'email': 'esarpong@knust.edu.gh'})
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIsNone(Lecturer.objects.get(email='esarpong@knust.edu.gh').user)
+
+    def test_they_can_sign_in_by_id_or_by_email(self):
+        self._activate()
+        password = re.search(r'Password:\s+(\S+)', mail.outbox[0].body).group(1)
+        for who in ['KNUST/CS/014', 'kmensah@knust.edu.gh']:
+            with self.subTest(who=who):
+                self.client.logout()
+                response = self.client.post(
+                    '/lecturer/login/', {'username': who, 'password': password})
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response.url, '/')
+
+    def test_the_account_survives_the_email_failing(self):
+        with mock.patch('scheduler.auth_views.send_mail',
+                        side_effect=OSError('mail server down')):
+            response = self._activate()
+        self.lecturer.refresh_from_db()
+        self.assertIsNotNone(self.lecturer.user)
+        self.assertIn('did not send', response.content.decode())
+
+    def test_it_is_reachable_from_the_lecturer_door(self):
+        self.assertIn('/lecturer/activate/',
+                      self.client.get('/lecturer/login/').content.decode())
+
+    def test_two_lecturers_cannot_share_an_id(self):
+        with self.assertRaises(Exception):
+            Lecturer.objects.create(
+                lecturer_id='KNUST/CS/014', name='Someone Else',
+                email='else@knust.edu.gh')
+
+    def test_several_may_have_none(self):
+        """Nullable, not blank: two empty strings would collide where two
+        NULLs do not, and most of the roster has no ID yet."""
+        Lecturer.objects.create(name='A', email='a@knust.edu.gh')
+        Lecturer.objects.create(name='B', email='b@knust.edu.gh')
+        self.assertEqual(Lecturer.objects.filter(lecturer_id__isnull=True).count(), 2)
+
+
+class LecturerIdAdminTests(TestCase):
+    """The timetable office side of the staff number."""
+
+    def setUp(self):
+        self.client.force_login(make_admin())
+
+    def test_the_form_insists_on_one(self):
+        """A lecturer without an ID cannot set up their own account, which is
+        the whole point of collecting it."""
+        response = self.client.post("/lecturers/add/", {
+            "name": "Dr. Kwame Mensah", "email": "kmensah@knust.edu.gh",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            Lecturer.objects.filter(email="kmensah@knust.edu.gh").exists())
+
+    def test_a_complete_record_saves(self):
+        response = self.client.post("/lecturers/add/", {
+            "lecturer_id": "KNUST/CS/014", "name": "Dr. Kwame Mensah",
+            "email": "kmensah@knust.edu.gh",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            Lecturer.objects.get(email="kmensah@knust.edu.gh").lecturer_id,
+            "KNUST/CS/014")
+
+    def test_it_is_marked_required_on_screen(self):
+        body = self.client.get("/lecturers/add/").content.decode()
+        self.assertEqual(body.count('class="required-mark"'), 3)
+
+    def test_the_list_shows_it(self):
+        Lecturer.objects.create(lecturer_id="KNUST/CS/014",
+                                name="Dr. Kwame Mensah",
+                                email="kmensah@knust.edu.gh")
+        body = self.client.get("/lecturers/").content.decode()
+        self.assertIn("KNUST/CS/014", body)
+        self.assertIn('data-label="Lecturer ID"', body)
+
+    def test_a_lecturer_without_one_is_shown_as_missing_not_blank(self):
+        """The ones who predate the column. A blank cell reads as a rendering
+        fault; a dash reads as nothing on file."""
+        Lecturer.objects.create(name="Dr. Efua Sarpong",
+                                email="esarpong@knust.edu.gh")
+        body = self.client.get("/lecturers/").content.decode()
+        self.assertIn("&mdash;", body)
+
+    def test_it_is_searchable(self):
+        Lecturer.objects.create(lecturer_id="KNUST/CS/014",
+                                name="Dr. Kwame Mensah",
+                                email="kmensah@knust.edu.gh")
+        Lecturer.objects.create(lecturer_id="KNUST/MA/002",
+                                name="Dr. Efua Sarpong",
+                                email="esarpong@knust.edu.gh")
+        body = self.client.get("/lecturers/?q=KNUST/CS").content.decode()
+        self.assertIn("Dr. Kwame Mensah", body)
+        self.assertNotIn("Dr. Efua Sarpong", body)
+
+
+class LecturerIdImportTests(TestCase):
+    """The column has to arrive in bulk, or the whole faculty is typed in."""
+
+    def test_it_imports(self):
+        result = run_import("lecturers", csv_upload(
+            "lecturer_id,name,email\n"
+            "KNUST/CS/014,Dr. Kwame Mensah,kmensah@knust.edu.gh\n"))
+        self.assertEqual(result.created, 1)
+        self.assertEqual(Lecturer.objects.get().lecturer_id, "KNUST/CS/014")
+
+    def test_a_file_without_the_column_still_imports(self):
+        """It is new, and the files already sent do not have it."""
+        result = run_import("lecturers", csv_upload(
+            "name,email\nDr. Kwame Mensah,kmensah@knust.edu.gh\n"))
+        self.assertEqual(result.created, 1)
+        self.assertIsNone(Lecturer.objects.get().lecturer_id)
+
+    def test_a_staff_number_column_is_recognised(self):
+        run_import("lecturers", csv_upload(
+            "Staff Number,Name,Email\n"
+            "KNUST/CS/014,Dr. Kwame Mensah,kmensah@knust.edu.gh\n"))
+        self.assertEqual(Lecturer.objects.get().lecturer_id, "KNUST/CS/014")
+
+    def test_a_blank_cell_does_not_erase_the_id_on_file(self):
+        Lecturer.objects.create(lecturer_id="KNUST/CS/014",
+                                name="Dr. Kwame Mensah",
+                                email="kmensah@knust.edu.gh")
+        run_import("lecturers", csv_upload(
+            "lecturer_id,name,email\n,Dr. Kwame Mensah,kmensah@knust.edu.gh\n"))
+        self.assertEqual(Lecturer.objects.get().lecturer_id, "KNUST/CS/014")
+
+    def test_an_id_belonging_to_someone_else_is_reported_not_swallowed(self):
+        """The rest of the record is still worth having, so only the clashing
+        ID is dropped - and the clash is said out loud."""
+        Lecturer.objects.create(lecturer_id="KNUST/CS/014",
+                                name="Dr. Kwame Mensah",
+                                email="kmensah@knust.edu.gh")
+        result = run_import("lecturers", csv_upload(
+            "lecturer_id,name,email\n"
+            "KNUST/CS/014,Dr. Efua Sarpong,esarpong@knust.edu.gh\n"))
+        self.assertEqual(result.created, 1)
+        self.assertTrue(result.skipped)
+        self.assertIsNone(
+            Lecturer.objects.get(email="esarpong@knust.edu.gh").lecturer_id)
+
+    def test_the_template_offered_for_download_has_the_column(self):
+        self.assertEqual(
+            template_csv("lecturers").splitlines()[0].split(","),
+            ["lecturer_id", "name", "email"])
 
 
 class SecondSubmissionTests(TestCase):

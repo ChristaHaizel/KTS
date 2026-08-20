@@ -5,6 +5,65 @@ from .models import (
 )
 
 
+class LecturerActivationForm(forms.Form):
+    """A lecturer claiming the record the timetable office already holds.
+
+    Creates no lecturer. It finds one, and the finding is the security: an
+    account is only ever attached to a row that was on the roster first.
+
+    The pair is the lecturer ID and the email address already on file, and
+    both must point at the same row. That the address is checked rather than
+    supplied is what makes this safe without a third factor: the password goes
+    to the address the timetable office recorded, so guessing an ID gains
+    nothing - the mail lands in the real lecturer's inbox.
+    """
+
+    lecturer_id = forms.CharField(
+        max_length=20,
+        label='Lecturer ID',
+        widget=forms.TextInput(attrs={'class': 'form-control',
+                                      'placeholder': 'e.g. KNUST/CS/014'}),
+        help_text='Your staff number, as the timetable office has it.',
+    )
+    email = forms.EmailField(
+        widget=forms.EmailInput(attrs={'class': 'form-control',
+                                       'placeholder': 'you@knust.edu.gh'}),
+        help_text='The address already on your record. Your password is sent there.',
+    )
+
+    def clean_lecturer_id(self):
+        return self.cleaned_data['lecturer_id'].strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        lecturer_id = cleaned.get('lecturer_id')
+        email = cleaned.get('email')
+        if not (lecturer_id and email):
+            return cleaned
+
+        lecturer = Lecturer.objects.filter(lecturer_id=lecturer_id).first()
+
+        # One message however it failed. Telling "no such ID" apart from "that
+        # is not the address we hold" would turn this form into a way of
+        # working out who is on staff, and then of harvesting their addresses.
+        mismatch = (
+            'We could not match those details to a lecturer record. Check your '
+            'lecturer ID and the email address the timetable office holds for '
+            'you, and ask them if it still does not work.'
+        )
+        if lecturer is None or lecturer.email.lower() != email.lower():
+            raise forms.ValidationError(mismatch)
+
+        if lecturer.user_id is not None:
+            raise forms.ValidationError(
+                'That lecturer already has an account. Sign in instead, or use '
+                'the forgotten password link if you cannot get in.'
+            )
+
+        cleaned['lecturer'] = lecturer
+        return cleaned
+
+
 class DepartmentSelect(forms.Select):
     """A department dropdown whose options say which college they belong to.
 
@@ -162,20 +221,25 @@ class DepartmentForm(forms.ModelForm):
 class LecturerForm(RequireAllMixin, forms.ModelForm):
     # The login account stays optional: it is a link to something that may not
     # exist yet, not a fact about the lecturer.
-    require = ('name', 'email')
+    require = ('lecturer_id', 'name', 'email')
 
     class Meta:
         model = Lecturer
-        fields = ['name', 'email', 'user']
+        fields = ['lecturer_id', 'name', 'email', 'user']
         widgets = {
+            'lecturer_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. KNUST/CS/014'}),
             'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'e.g. Dr. Kwame Mensah'}),
             'email': forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'e.g. kmensah@knust.edu.gh'}),
             'user': forms.Select(attrs={'class': 'form-select'}),
         }
         labels = {'user': 'Login account'}
         help_texts = {
+            'lecturer_id': 'Their staff number. They need it to set up their '
+                           'own account.',
             'user': 'Optional. Linking an account lets this lecturer sign in and '
-                    'raise reschedule requests for their own classes.',
+                    'raise reschedule requests for their own classes - but they '
+                    'can also set one up themselves from the lecturer sign-in '
+                    'page, without anyone handling a password.',
         }
 
 

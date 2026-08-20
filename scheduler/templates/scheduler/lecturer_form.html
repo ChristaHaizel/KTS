@@ -12,6 +12,12 @@
             <form method="post">
                 {% csrf_token %}
                 <div class="mb-3">
+                    <label class="form-label" for="id_lecturer_id">Lecturer ID<span class="required-mark" aria-hidden="true">*</span></label>
+                    {{ form.lecturer_id }}
+                    <div class="form-hint small mt-1">{{ form.lecturer_id.help_text }}</div>
+                    {% if form.lecturer_id.errors %}<div class="text-danger small mt-1">{{ form.lecturer_id.errors|join:", " }}</div>{% endif %}
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Full Name<span class="required-mark" aria-hidden="true">*</span></label>
                     {{ form.name }}
                     {% if form.name.errors %}<div class="text-danger small mt-1">{{ form.name.errors|join:", " }}</div>{% endif %}

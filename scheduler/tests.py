@@ -4077,6 +4077,116 @@ class MobileTableTests(TestCase):
         self.assertIn('No classes.', body)
 
 
+class DarkModeTests(TestCase):
+    """Light or dark, remembered.
+
+    The whole thing rests on one property: every colour below the token block
+    is a token. The moment a literal creeps back into a rule, that rule stops
+    following the theme - and it will look right to whoever wrote it, because
+    they were in the theme it happens to suit. Most of these guard that rather
+    than the feature.
+    """
+
+    SHELLS = ['base.html', 'auth_base.html']
+
+    # A data URI cannot read a custom property, so the chevron on a select has
+    # its colour written in twice, once per theme. It is the one exception.
+    CHEVRON = ('#05409e', '#7ea6ff')
+
+    def _template(self, name):
+        return (Path(__file__).resolve().parent / 'templates' / 'scheduler'
+                / name).read_text(encoding='utf-8')
+
+    def _token_block(self, css, selector):
+        """The declarations inside one :root rule."""
+        pattern = re.escape(selector) + r'@S@*@O@(.*?)@N@        @C@'
+        pattern = (pattern.replace('@S@', r'[^{]').replace('@O@', r'@BS@{')
+                          .replace('@N@', r'@BS@n').replace('@C@', r'@BS@}')
+                          .replace('@BS@', '\\'))
+        found = re.search(pattern, css, re.S)
+        self.assertIsNotNone(found, f'{selector} not found')
+        return found.group(1)
+
+    def _rules_only(self, css):
+        """The stylesheet with every :root block removed.
+
+        What is left is the rules, which is where a literal colour does damage
+        - inside :root it IS the definition.
+        """
+        pattern = (r':root@S@*@O@.*?@N@        @C@'
+                   .replace('@S@', r'[^{]').replace('@O@', '\\' + '{')
+                   .replace('@N@', '\\' + 'n').replace('@C@', '\\' + '}'))
+        return re.sub(pattern, '', css, flags=re.S)
+
+    def _colour_tokens(self, block):
+        pairs = re.findall(r'(--[a-z0-9-]+):' + '\\' + r's*([^;]+);', block)
+        return {name for name, value in pairs if '#' in value or 'rgba' in value}
+
+    def test_no_rule_names_a_colour_of_its_own(self):
+        """A literal outside the token blocks is a colour that cannot change
+        with the theme."""
+        for shell in self.SHELLS:
+            with self.subTest(shell=shell):
+                rules = self._rules_only(self._template(shell))
+                strays = re.findall(r'#[0-9a-fA-F]{3,8}', rules)
+                strays += re.findall(r'%23[0-9a-fA-F]{6}', rules)
+                strays = [c for c in strays
+                          if c.lower().replace('%23', '#') not in self.CHEVRON]
+                self.assertEqual(strays, [], f'{shell} has hardcoded colours')
+
+    def test_both_shells_define_a_dark_palette(self):
+        for shell in self.SHELLS:
+            with self.subTest(shell=shell):
+                self.assertIn(':root[data-theme="dark"]', self._template(shell))
+
+    def test_the_dark_palette_covers_every_light_one(self):
+        """A token given a daylight value and forgotten in the dark keeps that
+        value - one white card on a dark page, and nothing to say why."""
+        for shell in self.SHELLS:
+            with self.subTest(shell=shell):
+                css = self._template(shell)
+                light = self._colour_tokens(self._token_block(css, ':root '))
+                dark = self._colour_tokens(
+                    self._token_block(css, ':root[data-theme="dark"] '))
+                missing = light - dark
+                self.assertEqual(missing, set(),
+                                 f'{shell}: no dark value for {sorted(missing)}')
+
+    def test_the_sidebar_does_not_follow_the_flipping_token(self):
+        """--on-brand goes dark so it can sit on lightened fills. The sidebar
+        stays dark in both themes, so anything of its own using --on-brand
+        would become black text on a black sidebar."""
+        css = self._template('base.html')
+        sidebar = re.search(r'/@BS@* Sidebar @BS@*/(.*?)/@BS@* Main content @BS@*/'
+                            .replace('@BS@', '\\'), css, re.S)
+        self.assertIsNotNone(sidebar, 'the sidebar block moved')
+        self.assertNotIn('var(--on-brand)', sidebar.group(1))
+
+    def test_the_theme_is_settled_before_the_stylesheet_loads(self):
+        """Resolved after, the page paints light then repaints dark - a flash
+        on every single navigation."""
+        for shell in self.SHELLS:
+            with self.subTest(shell=shell):
+                css = self._template(shell)
+                self.assertLess(css.index("localStorage.getItem('kts-theme')"),
+                                css.index('bootstrap.min.css'))
+
+    def test_the_toggle_is_there_signed_in_and_signed_out(self):
+        self.assertIn('data-theme-toggle',
+                      self.client.get('/student/login/').content.decode())
+        self.client.force_login(make_admin())
+        self.assertIn('data-theme-toggle',
+                      self.client.get('/').content.decode())
+
+    def test_the_script_is_where_the_page_says_it_is(self):
+        self.assertIsNotNone(finders.find('scheduler/theme.js'))
+
+    def test_the_error_page_can_still_answer_for_itself(self):
+        """It renders with no context and no script, so it cannot know what
+        anyone chose. Following the machine is the most it can honestly do."""
+        self.assertIn('prefers-color-scheme: dark', render_to_string('500.html'))
+
+
 class MobileLayoutTests(TestCase):
     """The shell has to survive a phone.
 

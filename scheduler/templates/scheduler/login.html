@@ -11,27 +11,27 @@
         }
         .login-left {
             flex: 1;
-            background: rgba(255,255,255,0.08);
+            background: var(--auth-panel);
             padding: 48px 40px;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            border-right: 1px solid rgba(255,255,255,0.12);
+            border-right: 1px solid var(--auth-panel-line);
         }
-        .login-left .brand { font-size: 2rem; font-weight: 700; color: var(--on-brand); margin-bottom: var(--sp-2); }
-        .login-left .tagline { color: rgba(255,255,255,0.65); font-size: 0.9rem; margin-bottom: var(--sp-6); }
+        .login-left .brand { font-size: 2rem; font-weight: 700; color: var(--auth-brand-ink); margin-bottom: var(--sp-2); }
+        .login-left .tagline { color: var(--auth-panel-mute); font-size: 0.9rem; margin-bottom: var(--sp-6); }
         .feature-item {
             display: flex;
             align-items: center;
             gap: var(--sp-3);
-            color: rgba(255,255,255,0.8);
+            color: var(--auth-panel-ink);
             font-size: 0.85rem;
             margin-bottom: 14px;
         }
         .feature-icon {
             width: 32px;
             height: 32px;
-            background: rgba(255,255,255,0.15);
+            background: var(--auth-panel-tile);
             border-radius: var(--r-circle);
             display: flex;
             align-items: center;

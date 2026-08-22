@@ -4,6 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}KTS{% endblock %}</title>
+    {% comment %}
+    Runs before the stylesheet, deliberately. Anything that resolves the theme
+    after the page has begun painting shows a white flash and then repaints,
+    which is more jarring than having no dark mode at all. It is inline for the
+    same reason: an external file is another round trip before the first pixel.
+
+    It also resolves "follow the machine" into an explicit value, so the
+    stylesheet has one dark state to style instead of three.
+    {% endcomment %}
+    <script>
+        (function () {
+            var stored = null;
+            try { stored = localStorage.getItem('kts-theme'); } catch (e) {}
+            var dark = stored
+                ? stored === 'dark'
+                : window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
     {# Self-hosted so the app renders correctly with no internet connection. #}
     <link href="{% static 'scheduler/vendor/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'scheduler/vendor/bootstrap-icons.css' %}" rel="stylesheet">
@@ -14,6 +33,8 @@
         not extend the application shell - there is no sidebar to hang them off.
         {% endcomment %}
         :root {
+            color-scheme: light;
+
             --kts-blue:        #05409E;
             --kts-blue-dark:   #032c6b;
             --kts-blue-tint:   #eff6ff;
@@ -27,6 +48,20 @@
             --surface:         #ffffff;
             --line-strong:     #e2e8f0;
 
+            /* The page behind the card. It is the brand colour in daylight,
+               which is why it cannot simply be --kts-blue: that token lightens
+               after dark, and a light page is the one thing dark mode must not
+               produce. */
+            --auth-bg:         #05409E;
+            /* The panel beside the sign-in form is a wash over that ground. */
+            --auth-panel:      rgba(255,255,255,0.08);
+            --auth-panel-line: rgba(255,255,255,0.12);
+            --auth-panel-ink:  rgba(255,255,255,0.80);
+            --auth-panel-mute: rgba(255,255,255,0.65);
+            --auth-panel-tile: rgba(255,255,255,0.15);
+            --auth-brand-ink:  #ffffff;
+            --spinner-track:   rgba(255,255,255,0.35);
+
             --danger:          #dc2626;  --danger-bg: #fef2f2;
             --success:         #16a34a;  --success-bg: #f0fdf4;
 
@@ -37,6 +72,39 @@
             --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-5: 24px;  --sp-6: 32px;
         }
 
+        /* The same values as the application shell, for the same reasons. The
+           signed-out pages cannot inherit them - they do not extend it. */
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+
+            --kts-blue:        #7ea6ff;
+            --kts-blue-dark:   #a6c2ff;
+            --kts-blue-tint:   #1a2740;
+
+            --ink:             #e7edfa;
+            --ink-muted:       #a2b1cb;
+            --ink-faint:       #8494ae;
+            --ink-label:       #cdd7ea;
+            --on-brand:        #0a1226;
+
+            --surface:         #151d2e;
+            --line-strong:     #35425c;
+
+            --auth-bg:         #080d18;
+            --auth-panel:      rgba(255,255,255,0.04);
+            --auth-panel-line: rgba(255,255,255,0.08);
+            --auth-panel-ink:  rgba(231,237,250,0.80);
+            --auth-panel-mute: rgba(231,237,250,0.60);
+            --auth-panel-tile: rgba(255,255,255,0.08);
+            --auth-brand-ink:  #e7edfa;
+            /* The spinner sits on a light fill after dark, so its track has to
+               darken with it or it is a white ring on pale blue. */
+            --spinner-track:   rgba(10,18,38,0.30);
+
+            --danger:          #f87171;  --danger-bg: #331919;
+            --success:         #4ade80;  --success-bg: #14301f;
+        }
+
         /* Declared after the Bootstrap link so the framework cannot reintroduce shadows. */
         *, *::before, *::after {
             box-shadow: none !important;
@@ -44,6 +112,17 @@
         }
 
         * { font-family: 'Inter', sans-serif; }
+
+        /* Bootstrap's own colours are literals and do not follow our tokens. */
+        .form-control, .form-select {
+            background-color: var(--surface);
+            color: var(--ink);
+        }
+        .form-control:focus { background-color: var(--surface); color: var(--ink); }
+        .form-control::placeholder { color: var(--ink-faint); opacity: 1; }
+        :root[data-theme="dark"] .form-select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%237ea6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+        }
 
         /* Match the rest of the app rather than the operating system. */
         * {
@@ -60,7 +139,8 @@
         }
 
         body {
-            background: var(--kts-blue);
+            background: var(--auth-bg);
+            color: var(--ink);
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -133,7 +213,7 @@
             width: 15px;
             height: 15px;
             flex-shrink: 0;
-            border: 2px solid rgba(255,255,255,0.35);
+            border: 2px solid var(--spinner-track);
             border-top-color: var(--on-brand);
             border-radius: var(--r-circle);
             animation: btn-spin 0.7s linear infinite;
@@ -183,12 +263,42 @@
         .auth-footer { margin-top: var(--sp-5); font-size: 0.85rem; color: var(--ink-faint); }
         .auth-footer a { color: var(--kts-blue); text-decoration: none; font-weight: 500; }
         .auth-footer a:hover { text-decoration: underline; }
+        /* No topbar out here, so the control sits in the corner of the page.
+           It has to read on the dark ground behind the card, which is why it
+           takes its colours from the panel tokens rather than the surface. */
+        .theme-corner {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 20;
+            width: 40px;
+            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--auth-panel-line);
+            border-radius: var(--r-circle);
+            background: var(--auth-panel);
+            color: var(--auth-panel-ink);
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .theme-corner:hover {
+            background: var(--auth-panel-tile);
+            color: var(--auth-brand-ink);
+        }
         {% block extra_css %}{% endblock %}
     </style>
 </head>
 <body>
+<button type="button" class="theme-corner" data-theme-toggle
+        aria-label="Switch theme" aria-pressed="false">
+    <i class="bi bi-moon-stars" aria-hidden="true"></i>
+</button>
 {% block body %}{% endblock %}
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
 <script src="{% static 'scheduler/form-busy.js' %}"></script>
+<script src="{% static 'scheduler/theme.js' %}"></script>
 </body>
 </html>

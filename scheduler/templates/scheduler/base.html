@@ -4,12 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}KTS - KNUST Timetable System{% endblock %}</title>
+    {% comment %}
+    Runs before the stylesheet, deliberately. Anything that resolves the theme
+    after the page has begun painting shows a white flash and then repaints,
+    which is more jarring than having no dark mode at all. It is inline for the
+    same reason: an external file is another round trip before the first pixel.
+
+    It also resolves "follow the machine" into an explicit value, so the
+    stylesheet has one dark state to style instead of three.
+    {% endcomment %}
+    <script>
+        (function () {
+            var stored = null;
+            try { stored = localStorage.getItem('kts-theme'); } catch (e) {}
+            var dark = stored
+                ? stored === 'dark'
+                : window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
     {# Self-hosted so the app renders correctly with no internet connection. #}
     <link href="{% static 'scheduler/vendor/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'scheduler/vendor/bootstrap-icons.css' %}" rel="stylesheet">
     <link href="{% static 'scheduler/vendor/inter.css' %}" rel="stylesheet">
     <style>
+        /* ------------------------------------------------------------------
+           Colour lives here and only here.
+
+           Every surface, line and piece of text below is a token, which is
+           what makes a second theme a matter of redefining thirty values
+           rather than rewriting a stylesheet. Two rules keep it that way:
+
+           - --on-brand is whatever should sit ON a filled accent. In daylight
+             the fills are deep and it is white; in the dark the fills are
+             light and it is nearly black. It flips, so nothing that uses it
+             has to know which theme is on.
+           - The sidebar is dark in both themes, so it does NOT use --on-brand.
+             It has --sidebar-ink, which is always white. Without that split,
+             flipping --on-brand would paint the sidebar's own text black.
+           ------------------------------------------------------------------ */
         :root {
+            color-scheme: light;
+
             /* Brand - flat fills only */
             --kts-blue:        #05409E;
             --kts-blue-dark:   #032c6b;
@@ -21,6 +57,7 @@
             --ink-faint:       #94a3b8;
             --ink-label:       #374151;
             --ink-body:        #475569;
+            --ink-ghost:       #cbd5e1;   /* empty-state icons: present, not read */
             --on-brand:        #ffffff;
 
             /* Surfaces and lines */
@@ -28,12 +65,21 @@
             --surface:         #ffffff;
             --surface-sunken:  #f8faff;
             --line:            #e8edf5;
+            --line-soft:       #f1f5f9;   /* between rows of one table */
             --line-strong:     #e2e8f0;
+
+            /* The sidebar carries the brand in daylight and stays dark at
+               night, so its background is its own token rather than the
+               accent colour. */
+            --sidebar-bg:      #05409E;
+            --sidebar-ink:     #ffffff;
 
             /* Status */
             --success:         #16a34a;  --success-bg: #f0fdf4;  --success-line: #bbf7d0;
+            --success-ink:     #15803d;  --success-bg-strong: #dcfce7;
             --danger:          #dc2626;  --danger-bg:  #fef2f2;  --danger-line:  #fecaca;
-            --warn:            #d97706;  --warn-bg:    #fffbeb;
+            --danger-dark:     #b91c1c;  --danger-bg-strong:  #fee2e2;
+            --warn:            #d97706;  --warn-bg:    #fffbeb;  --warn-line:    #fde68a;
             --violet:          #7c3aed;  --violet-bg:  #f5f3ff;
             --orange:          #ea580c;  --orange-bg:  #fff7ed;
 
@@ -55,6 +101,63 @@
             --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
         }
 
+        /* ------------------------------------------------------------------
+           The same page after dark.
+
+           One block, not two. There are three states to honour - chosen
+           dark, chosen light, and "whatever this machine is set to" - and the
+           usual way to write that duplicates every value: once under
+           data-theme="dark", once inside a prefers-color-scheme query. Here
+           the script resolves the system preference into an explicit
+           data-theme before the page paints, so there is one state to style
+           and one place to change a colour. The cost is that dark mode needs
+           JavaScript, which this app already requires for its own navigation.
+
+           The accents lighten, because a colour that reads as deep blue on
+           white disappears against a dark surface. --on-brand goes dark to
+           follow them.
+           ------------------------------------------------------------------ */
+        :root[data-theme="dark"] {
+            /* Tells the browser to darken what it draws itself: form controls
+               it owns, the scrollbar gutter, the space past the page edge. */
+            color-scheme: dark;
+
+            --kts-blue:        #7ea6ff;
+            --kts-blue-dark:   #a6c2ff;   /* hover moves toward the light here */
+            --kts-blue-tint:   #1a2740;
+
+            --ink:             #e7edfa;
+            --ink-muted:       #a2b1cb;
+            --ink-faint:       #8494ae;
+            --ink-label:       #cdd7ea;
+            --ink-body:        #c0cbe0;
+            --ink-ghost:       #3c4b66;
+            --on-brand:        #0a1226;
+
+            --canvas:          #0b1120;
+            --surface:         #151d2e;
+            --surface-sunken:  #1a2334;
+            --line:            #263149;
+            --line-soft:       #1f2839;
+            --line-strong:     #35425c;
+
+            --sidebar-bg:      #0d1524;
+            --sidebar-ink:     #ffffff;
+
+            --success:         #4ade80;  --success-bg: #14301f;  --success-line: #235b39;
+            --success-ink:     #86efac;  --success-bg-strong: #1a3d28;
+            --danger:          #f87171;  --danger-bg:  #331919;  --danger-line:  #632929;
+            --danger-dark:     #fca5a5;  --danger-bg-strong:  #451f1f;
+            --warn:            #fbbf24;  --warn-bg:    #33280e;  --warn-line:    #61491a;
+            --violet:          #a78bfa;  --violet-bg:  #241d3d;
+            --orange:          #fb923c;  --orange-bg:  #3a2213;
+
+            --chart-grid:      #263149;
+            --chart-axis:      #3c4b66;
+            --chart-label:     #8494ae;
+            --chart-series:    #7ea6ff;
+        }
+
         /* Depth is carried by borders and background tints, never by elevation.
            Declared after the Bootstrap link so the framework cannot reintroduce shadows. */
         *, *::before, *::after {
@@ -63,7 +166,45 @@
         }
 
         * { font-family: 'Inter', sans-serif; }
-        body { background: var(--canvas); min-height: 100vh; }
+        body { background: var(--canvas); color: var(--ink); min-height: 100vh; }
+
+        /* ------------------------------------------------------------------
+           What Bootstrap paints for itself.
+
+           The framework's own colours are literals compiled into its
+           stylesheet - they do not read our tokens and so do not change with
+           the theme. Left alone, a dark page would still have white input
+           fields and black close buttons. These are the places it wins, and
+           this is where we take them back.
+           ------------------------------------------------------------------ */
+        .form-control,
+        .form-select,
+        .form-control[type="file"] {
+            background-color: var(--surface);
+            color: var(--ink);
+        }
+        .form-control:focus,
+        .form-select:focus {
+            background-color: var(--surface);
+            color: var(--ink);
+        }
+        .form-control::placeholder { color: var(--ink-faint); opacity: 1; }
+        .form-control:disabled,
+        .form-control[readonly] { background-color: var(--surface-sunken); }
+
+        .table { --bs-table-bg: transparent; --bs-table-color: var(--ink-body); }
+
+        /* The dismiss cross is a black SVG baked into the framework. On a dark
+           alert it is a black square on a dark ground; inverting it is the
+           only handle we have on somebody else's image. */
+        :root[data-theme="dark"] .btn-close { filter: invert(1) grayscale(1); }
+
+        /* The chevron on a select is a data URI, and a data URI cannot read a
+           custom property - the colour is baked into the markup inside it. So
+           the dark theme gets its own copy with a lighter stroke. */
+        :root[data-theme="dark"] .form-select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%237ea6ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+        }
 
         /* Scrollbars. The platform default is a grey slab that belongs to the
            OS rather than the page; these are hairline, track-less, and take
@@ -84,7 +225,7 @@
             background-clip: padding-box;
         }
         *::-webkit-scrollbar-thumb:hover {
-            background: #cbd5e1;
+            background: var(--line-strong);
             background-clip: padding-box;
         }
         *::-webkit-scrollbar-corner { background: transparent; }
@@ -119,14 +260,14 @@
                browser chrome changes the viewport height. */
             height: 100vh;
             height: 100dvh;
-            background: var(--kts-blue);
+            background: var(--sidebar-bg);
             width: 250px;
             position: fixed;
             top: 0; left: 0;
             display: flex;
             flex-direction: column;
             z-index: 100;
-            border-right: 1px solid var(--kts-blue-dark);
+            border-right: 1px solid rgba(255,255,255,0.10);
         }
         .sidebar-brand {
             position: relative;   /* anchors the drawer close button */
@@ -136,7 +277,7 @@
         .sidebar-brand .logo-text {
             font-size: 1.4rem;
             font-weight: 700;
-            color: var(--on-brand);
+            color: var(--sidebar-ink);
             letter-spacing: -0.5px;
         }
         .sidebar-brand .logo-sub {
@@ -178,11 +319,11 @@
         .sidebar .nav-link i { font-size: 1rem; width: 20px; }
         .sidebar .nav-link:hover {
             background: rgba(255,255,255,0.12);
-            color: var(--on-brand);
+            color: var(--sidebar-ink);
         }
         .sidebar .nav-link.active {
             background: rgba(255,255,255,0.18);
-            color: var(--on-brand);
+            color: var(--sidebar-ink);
         }
 
         /* Drawer controls. On a wide screen the sidebar is simply present and
@@ -217,7 +358,7 @@
             border: none;
             border-radius: var(--r-circle);
             background: rgba(255,255,255,0.12);
-            color: var(--on-brand);
+            color: var(--sidebar-ink);
             font-size: 1rem;
             cursor: pointer;
             transition: background-color 0.2s;
@@ -461,7 +602,7 @@
             font-size: 0.875rem;
             transition: background-color 0.2s;
         }
-        .btn-danger-kts:hover { background: #b91c1c; color: var(--on-brand); }
+        .btn-danger-kts:hover { background: var(--danger-dark); color: var(--on-brand); }
         .btn-approve, .btn-reject {
             border-radius: var(--r-pill);
             font-size: 0.8rem;
@@ -474,17 +615,17 @@
             color: var(--success);
             border: 1.5px solid var(--success-line);
         }
-        .btn-approve:hover { background: #dcfce7; color: var(--success); }
+        .btn-approve:hover { background: var(--success-bg-strong); color: var(--success); }
         .btn-reject {
             background: var(--danger-bg);
             color: var(--danger);
             border: 1.5px solid var(--danger-line);
         }
-        .btn-reject:hover { background: #fee2e2; color: var(--danger); }
+        .btn-reject:hover { background: var(--danger-bg-strong); color: var(--danger); }
 
         /* Alerts */
         .alert { border-radius: var(--r-card); border: none; font-size: 0.875rem; }
-        .alert-success { background: var(--success-bg); color: #15803d; }
+        .alert-success { background: var(--success-bg); color: var(--success-ink); }
         .alert-danger  { background: var(--danger-bg);  color: var(--danger); }
         .alert-warning { background: var(--warn-bg);    color: var(--warn); }
 
@@ -723,7 +864,7 @@
 
         /* Dashboard summary table */
         .summary-table { font-size: 0.875rem; }
-        .summary-table td { padding: 10px 0; border-top: 1px solid #f1f5f9; }
+        .summary-table td { padding: 10px 0; border-top: 1px solid var(--line-soft); }
         .summary-table tr:first-child td { border-top: none; }
         .summary-row-label { color: var(--ink-muted); }
         .summary-row-value { font-weight: 600; text-align: right; }
@@ -744,7 +885,7 @@
         .data-table tbody td {
             padding: 14px 20px;
             vertical-align: middle;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid var(--line-soft);
             color: var(--ink-body);
         }
         .data-table tbody tr:hover td { background: var(--surface-sunken); }
@@ -755,7 +896,7 @@
             padding: 56px 20px;
             color: var(--ink-faint);
         }
-        .data-table .empty-state i { font-size: 2rem; display: block; margin-bottom: 10px; color: #cbd5e1; }
+        .data-table .empty-state i { font-size: 2rem; display: block; margin-bottom: 10px; color: var(--ink-ghost); }
 
         .row-actions { display: flex; gap: var(--sp-2); }
         .icon-btn {
@@ -866,7 +1007,7 @@
             padding: var(--sp-3) var(--sp-6);
             background: var(--warn-bg);
             color: var(--warn);
-            border-bottom: 1px solid #fde68a;
+            border-bottom: 1px solid var(--warn-line);
             font-size: 0.85rem;
         }
         .btn-exit-preview {
@@ -1071,7 +1212,7 @@
             font-size: 0.82rem;
             color: var(--danger);
             padding: 8px 0;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid var(--line-soft);
         }
         .import-error:first-child { border-top: none; }
         .import-notes { margin: 0; padding-left: 18px; }
@@ -1107,7 +1248,7 @@
         /* Notifications. Unread is marked by a rule and a badge, not colour alone. */
         .notification-item {
             padding: var(--sp-3) 0;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid var(--line-soft);
         }
         .notification-item:first-child { border-top: none; }
         .notification-item.unread {
@@ -1179,7 +1320,7 @@
         .record-count { color: var(--ink-muted); font-size: 0.875rem; }
         .text-faint { color: var(--ink-faint); font-weight: 400; }
         .empty-block { text-align: center; padding: var(--sp-5) 0; }
-        .empty-block i { font-size: 2rem; color: #cbd5e1; display: block; margin-bottom: 10px; }
+        .empty-block i { font-size: 2rem; color: var(--ink-ghost); display: block; margin-bottom: 10px; }
         .empty-block p { color: var(--ink-faint); font-size: 0.875rem; margin: 0; }
         .empty-inline-icon { font-size: 2rem; display: block; margin-bottom: 10px; }
 
@@ -1196,7 +1337,7 @@
         }
         .empty-icon-circle.success { background: var(--success-bg); color: var(--success); }
         .empty-title { font-weight: 600; }
-        .empty-title.success { color: #15803d; }
+        .empty-title.success { color: var(--success-ink); }
         .empty-lede { color: var(--ink-faint); font-size: 0.875rem; }
 
         /* Generate page */
@@ -1524,6 +1665,10 @@
             <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
         </div>
         <div class="topbar-user">
+            <button type="button" class="topbar-bell" data-theme-toggle
+                    aria-label="Switch theme" aria-pressed="false">
+                <i class="bi bi-moon-stars" aria-hidden="true"></i>
+            </button>
             {% comment %}
             A count with no number when there is nothing waiting: an empty bell
             is quieter than a zero, and the label still says which it is.
@@ -1587,6 +1732,7 @@
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
 <script src="{% static 'scheduler/nav-drawer.js' %}"></script>
 <script src="{% static 'scheduler/form-busy.js' %}"></script>
+<script src="{% static 'scheduler/theme.js' %}"></script>
 <script src="{% static 'scheduler/search-suggest.js' %}"></script>
 </body>
 </html>

@@ -376,6 +376,35 @@
             transition: opacity 0.25s ease, visibility 0.25s;
         }
 
+        /* Sits below the scrolling nav, not inside it, so it keeps its place
+           at the foot of the sidebar however long the list of links gets. */
+        .sidebar-foot {
+            flex-shrink: 0;
+            margin: 0;
+            padding: var(--sp-3);
+            border-top: 1px solid rgba(255,255,255,0.12);
+        }
+        .sidebar-signout {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border: none;
+            border-radius: var(--r-pill);
+            background: transparent;
+            color: rgba(255,255,255,0.75);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .sidebar-signout i { font-size: 1rem; width: 20px; }
+        .sidebar-signout:hover {
+            background: rgba(255,255,255,0.12);
+            color: var(--sidebar-ink);
+        }
+
         /* Main content */
         .main-wrap {
             margin-left: 250px;
@@ -414,30 +443,9 @@
             color: var(--ink-muted);
         }
         .topbar-username { font-weight: 500; }
-        .signout-form { margin: 0; }
-        .btn-signout {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 7px 14px;
-            margin-left: var(--sp-2);
-            border-radius: var(--r-pill);
-            border: 1.5px solid var(--line-strong);
-            background: var(--surface);
-            color: var(--ink-muted);
-            font-size: 0.8rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: border-color 0.2s, color 0.2s, background-color 0.2s;
-        }
-        .btn-signout:hover {
-            border-color: var(--danger);
-            color: var(--danger);
-            background: var(--danger-bg);
-        }
-        /* Narrow screens keep the icon; the label is the first thing to go. */
+        /* Sign out lives at the foot of the sidebar now, so the topbar has
+           room for the name in full until the screen is genuinely narrow. */
         @media (max-width: 640px) {
-            .btn-signout span { display: none; }
             .topbar-username { display: none; }
         }
         /* Notifications, beside the account they belong to. */
@@ -473,6 +481,41 @@
             /* Against the white topbar the badge would otherwise sit straight
                on the bell it is counting. */
             border: 2px solid var(--surface);
+        }
+
+        /* Two options in one recess, so they read as one control with a
+           choice made rather than two unrelated buttons. */
+        .theme-pick {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 3px;
+            border-radius: var(--r-pill);
+            background: transparent;
+            border: 1px solid var(--line);
+        }
+        .theme-option {
+            width: 30px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: var(--r-circle);
+            background: transparent;
+            color: var(--ink-faint);
+            font-size: 0.92rem;
+            cursor: pointer;
+            transition: background-color 0.15s, color 0.15s;
+        }
+        .theme-option:hover { color: var(--kts-blue); }
+        /* The one you are in. A filled chip rather than a tint: --kts-blue-tint
+           is very nearly white, so in daylight it left neither option looking
+           chosen. The accent fill reads at a glance in both themes, and
+           --on-brand flips to stay legible on it. */
+        .theme-option[aria-pressed="true"] {
+            background: var(--kts-blue);
+            color: var(--on-brand);
         }
 
         .user-avatar {
@@ -1451,9 +1494,19 @@
                 max-width: 84vw;
                 transform: translateX(-100%);
                 visibility: hidden;
-                transition: transform 0.25s ease, visibility 0.25s;
+                /* Visibility is switched, never interpolated. Transitioned, it
+                   keeps its old value until the animation actually starts, so
+                   anything delaying the first frame leaves an open drawer
+                   invisible. The zero-duration delay does the same job without
+                   that risk: on the way out it waits for the slide to finish
+                   before hiding, on the way in it applies at once. */
+                transition: transform 0.25s ease, visibility 0s linear 0.25s;
             }
-            body.nav-open .sidebar { transform: translateX(0); visibility: visible; }
+            body.nav-open .sidebar {
+                transform: translateX(0);
+                visibility: visible;
+                transition: transform 0.25s ease, visibility 0s;
+            }
             body.nav-open .nav-backdrop { opacity: 1; visibility: visible; }
             /* The page behind must not scroll under the drawer. */
             body.nav-open { overflow: hidden; }
@@ -1651,6 +1704,23 @@
         </a>
         {% endif %}
     </div>
+
+    {% comment %}
+    Outside .sidebar-nav on purpose. That is the part that scrolls when the
+    links outrun the screen, and anything inside it scrolls away with them -
+    which is how sign out came to be cut off the bottom before. Out here it is
+    a sibling of the scrolling area, so it holds its place at the foot however
+    long the list grows.
+
+    Logout has to be POST; Django refuses a GET.
+    {% endcomment %}
+    <form method="post" action="{% url 'logout' %}" class="sidebar-foot">
+        {% csrf_token %}
+        <button type="submit" class="sidebar-signout">
+            <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+            <span>Sign out</span>
+        </button>
+    </form>
 </div>
 
 <div class="nav-backdrop" id="nav-backdrop"></div>
@@ -1665,10 +1735,6 @@
             <h5 class="topbar-title">{% block page_title %}Dashboard{% endblock %}</h5>
         </div>
         <div class="topbar-user">
-            <button type="button" class="topbar-bell" data-theme-toggle
-                    aria-label="Switch theme" aria-pressed="false">
-                <i class="bi bi-moon-stars" aria-hidden="true"></i>
-            </button>
             {% comment %}
             A count with no number when there is nothing waiting: an empty bell
             is quieter than a zero, and the label still says which it is.
@@ -1680,22 +1746,28 @@
                 <span class="bell-count">{{ unread_notifications }}</span>
                 {% endif %}
             </a>
+            {% comment %}
+            Two controls rather than one that changes meaning as you press it.
+            A single button has to show either the state it is in or the state
+            it would move to, and whichever it shows, half the people reading
+            it guess the other. Two say which is which and mark the one you are
+            in, so there is nothing to work out.
+            {% endcomment %}
+            <div class="theme-pick" role="group" aria-label="Colour theme">
+                <button type="button" class="theme-option" data-theme-set="light"
+                        aria-label="Light mode" title="Light mode" aria-pressed="false">
+                    <i class="bi bi-sun" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="theme-option" data-theme-set="dark"
+                        aria-label="Dark mode" title="Dark mode" aria-pressed="false">
+                    <i class="bi bi-moon" aria-hidden="true"></i>
+                </button>
+            </div>
             <div class="user-avatar">{{ avatar_initial }}</div>
             <span class="topbar-username">
                 {{ display_name }}
                 {% if student_profile %}<span class="text-faint">({{ student_profile.student_id }})</span>{% endif %}
             </span>
-            {% comment %}
-            Logout must be POST - Django refuses GET - and the topbar is sticky,
-            so this stays reachable however far the page or sidebar scrolls.
-            {% endcomment %}
-            <form method="post" action="{% url 'logout' %}" class="signout-form">
-                {% csrf_token %}
-                <button type="submit" class="btn-signout">
-                    <i class="bi bi-box-arrow-right"></i>
-                    <span>Sign Out</span>
-                </button>
-            </form>
         </div>
     </div>
     {% if impersonator %}

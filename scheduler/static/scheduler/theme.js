@@ -11,6 +11,11 @@
  * this machine is set to". The head script resolves the third into one of the
  * first two, so the stylesheet only ever styles an explicit data-theme and the
  * dark palette is written once.
+ *
+ * The control is a pair - a sun and a moon - rather than one button that
+ * changes as you press it. A single button can show the state you are in or
+ * the state it would move you to, and whichever it shows, half the people
+ * reading it assume the other.
  */
 (function () {
     'use strict';
@@ -40,39 +45,33 @@
         return root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
     }
 
-    function describe(button, theme) {
-        var goingTo = theme === 'dark' ? 'light' : 'dark';
-        button.setAttribute('aria-label', 'Switch to ' + goingTo + ' mode');
-        button.setAttribute('title', 'Switch to ' + goingTo + ' mode');
-        // Pressed means dark is on, so a screen reader can say which state the
-        // control is in rather than only what it would do next.
-        button.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
-
-        var icon = button.querySelector('i');
-        if (icon) {
-            // The icon shows what you would get, which is the convention people
-            // arrive with: a moon to go dark, a sun to come back.
-            icon.className = theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
-        }
+    function mark(buttons, theme) {
+        buttons.forEach(function (button) {
+            var mine = button.getAttribute('data-theme-set');
+            // Which one you are in, said out loud rather than left to colour.
+            button.setAttribute('aria-pressed', mine === theme ? 'true' : 'false');
+        });
     }
 
     function apply(theme, buttons) {
         root.setAttribute('data-theme', theme);
-        buttons.forEach(function (button) { describe(button, theme); });
+        mark(buttons, theme);
     }
 
     function init() {
         var buttons = Array.prototype.slice.call(
-            document.querySelectorAll('[data-theme-toggle]'));
+            document.querySelectorAll('[data-theme-set]'));
         if (!buttons.length) { return; }
 
         apply(current(), buttons);
 
         buttons.forEach(function (button) {
             button.addEventListener('click', function () {
-                var next = current() === 'dark' ? 'light' : 'dark';
-                apply(next, buttons);
-                remember(next);
+                var chosen = button.getAttribute('data-theme-set');
+                // Pressing the one already on is not a no-op worth guarding:
+                // it settles the choice, so the machine stops deciding.
+                apply(chosen === 'dark' ? 'dark' : 'light', buttons);
+                remember(chosen);
             });
         });
 

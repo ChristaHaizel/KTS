@@ -4171,12 +4171,36 @@ class DarkModeTests(TestCase):
                 self.assertLess(css.index("localStorage.getItem('kts-theme')"),
                                 css.index('bootstrap.min.css'))
 
-    def test_the_toggle_is_there_signed_in_and_signed_out(self):
-        self.assertIn('data-theme-toggle',
-                      self.client.get('/student/login/').content.decode())
+    def test_both_choices_are_offered_signed_in_and_signed_out(self):
+        """A pair, not one button that changes meaning as it is pressed."""
+        pages = ['/student/login/']
+        for url in pages:
+            with self.subTest(url=url):
+                body = self.client.get(url).content.decode()
+                self.assertIn('data-theme-set="light"', body)
+                self.assertIn('data-theme-set="dark"', body)
+
         self.client.force_login(make_admin())
-        self.assertIn('data-theme-toggle',
-                      self.client.get('/').content.decode())
+        body = self.client.get('/').content.decode()
+        self.assertIn('data-theme-set="light"', body)
+        self.assertIn('data-theme-set="dark"', body)
+
+    def test_sign_out_sits_below_the_part_that_scrolls(self):
+        """Inside .sidebar-nav it scrolls away with the links, which is how it
+        came to be cut off the bottom before."""
+        css = self._template('base.html')
+        nav_open = css.index('<div class="sidebar-nav">')
+        nav_close = css.index('class="sidebar-foot"')
+        # The form comes after the nav div has been closed, not within it.
+        between = css[nav_open:nav_close]
+        self.assertEqual(between.count('<div'), between.count('</div>'),
+                         'sign out is nested inside the scrolling nav')
+
+    def test_sign_out_is_a_post(self):
+        """Django refuses a GET, and a link would look like it worked."""
+        self.client.force_login(make_admin())
+        body = self.client.get('/').content.decode()
+        self.assertIn('<form method="post" action="/logout/"', body)
 
     def test_the_script_is_where_the_page_says_it_is(self):
         self.assertIsNotNone(finders.find('scheduler/theme.js'))

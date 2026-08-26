@@ -271,20 +271,30 @@
             top: 18px;
             right: 18px;
             z-index: 20;
-            width: 40px;
-            height: 40px;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 3px;
+            border: 1px solid var(--auth-panel-line);
+            border-radius: var(--r-pill);
+            background: var(--auth-panel);
+        }
+        .theme-option {
+            width: 32px;
+            height: 32px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid var(--auth-panel-line);
+            border: none;
             border-radius: var(--r-circle);
-            background: var(--auth-panel);
-            color: var(--auth-panel-ink);
-            font-size: 1rem;
+            background: transparent;
+            color: var(--auth-panel-mute);
+            font-size: 0.95rem;
             cursor: pointer;
-            transition: background-color 0.2s, color 0.2s;
+            transition: background-color 0.15s, color 0.15s;
         }
-        .theme-corner:hover {
+        .theme-option:hover { color: var(--auth-brand-ink); }
+        .theme-option[aria-pressed="true"] {
             background: var(--auth-panel-tile);
             color: var(--auth-brand-ink);
         }
@@ -292,10 +302,16 @@
     </style>
 </head>
 <body>
-<button type="button" class="theme-corner" data-theme-toggle
-        aria-label="Switch theme" aria-pressed="false">
-    <i class="bi bi-moon-stars" aria-hidden="true"></i>
-</button>
+<div class="theme-corner" role="group" aria-label="Colour theme">
+    <button type="button" class="theme-option" data-theme-set="light"
+            aria-label="Light mode" title="Light mode" aria-pressed="false">
+        <i class="bi bi-sun" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="theme-option" data-theme-set="dark"
+            aria-label="Dark mode" title="Dark mode" aria-pressed="false">
+        <i class="bi bi-moon" aria-hidden="true"></i>
+    </button>
+</div>
 {% block body %}{% endblock %}
 <script src="{% static 'scheduler/password-toggle.js' %}"></script>
 <script src="{% static 'scheduler/form-busy.js' %}"></script>

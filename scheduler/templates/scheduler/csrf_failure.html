@@ -1,0 +1,44 @@
+{% extends 'scheduler/auth_base.html' %}
+{% block title %}That page was out of date - KTS{% endblock %}
+{% block body %}
+<div class="auth-card">
+    <div class="auth-icon bad"><i class="bi bi-arrow-clockwise"></i></div>
+    <h4>That page was out of date</h4>
+
+    {% if was_signing_out %}
+    <p class="auth-lede">
+        You are still signed in - the sign out did not go through. The page you
+        pressed it on had been open since before you last signed in, and the
+        security token it carried had been replaced.
+    </p>
+    {% comment %}
+    A fresh token, rendered now, so this button works where the last one did
+    not. That is the whole point of showing this page rather than an error.
+    {% endcomment %}
+    <form method="post" action="{% url 'logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn-login">
+            <i class="bi bi-box-arrow-right me-1"></i> Sign out now
+        </button>
+    </form>
+    {% else %}
+    <p class="auth-lede">
+        Nothing was saved and nothing was lost. The page had been open since
+        before you last signed in, and the security token it carried had been
+        replaced - so what you sent was refused as stale.
+    </p>
+    <p class="auth-lede">
+        Go back, reload the page, and do it again. It will work the second
+        time.
+    </p>
+    <a href="{% url 'login' %}" class="btn-login d-block text-center text-decoration-none">
+        Go to sign in
+    </a>
+    {% endif %}
+
+    <div class="auth-footer">
+        If this keeps happening, check that your browser is allowing cookies
+        for this site.
+    </div>
+</div>
+{% endblock %}

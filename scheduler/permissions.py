@@ -47,10 +47,30 @@ staff_required = user_passes_test(staff_only)
 
 
 def role_context(request):
-    """Context processor: who the signed-in account is, and their unread count."""
+    """Context processor: who the signed-in account is, and their unread count.
+
+    request.user is fetched defensively because this does not always run after
+    the authentication middleware. A CSRF failure is handled by the CSRF
+    middleware, which sits above authentication in the stack, so a page
+    rendered from there has no user attached - and a context processor that
+    assumed one would raise while trying to render the error page.
+    """
     from .models import Notification  # imported here to avoid a circular import
 
-    user = request.user
+    user = getattr(request, 'user', None)
+    if user is None:
+        return {
+            'is_admin': False,
+            'lecturer_profile': None,
+            'student_profile': None,
+            'is_student': False,
+            'unread_notifications': 0,
+            'display_name': '',
+            'avatar_initial': '?',
+            'impersonator': None,
+            'viewing_as': None,
+        }
+
     student = student_for(user)
     lecturer = lecturer_for(user)
 

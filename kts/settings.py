@@ -253,6 +253,12 @@ LOGOUT_REDIRECT_URL = '/login/'
 # Django's own backend first, so a username - which for a student is their
 # student ID - costs nothing extra. The second only ever sees values that look
 # like an email address.
+# Django's own CSRF page is a wall of yellow that reads as a crash. The
+# commonest cause is mundane - signing in rotates the token, so a tab open from
+# before that carries one the server no longer accepts - and it is recoverable,
+# which is worth saying rather than leaving somebody stuck.
+CSRF_FAILURE_VIEW = 'scheduler.auth_views.csrf_failure'
+
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
     'scheduler.auth_backends.EmailBackend',

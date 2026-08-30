@@ -239,3 +239,24 @@ def activate_lecturer(request):
         })
 
     return render(request, 'scheduler/lecturer_activate.html', {'form': form})
+
+
+def csrf_failure(request, reason=''):
+    """What somebody sees when a form is rejected as stale.
+
+    Django's own page is a wall of yellow reading "CSRF verification failed",
+    which tells the person nothing they can act on and looks like the site
+    broke. It usually has one cause, and a mundane one: the token belongs to
+    the page, and signing in rotates it - so a tab left open from before a
+    later sign-in carries a token the server has stopped accepting. Nothing is
+    wrong and nothing is lost; the page is simply out of date.
+
+    The recovery is the point of this. It renders a fresh token, so the sign
+    out on this page works even though the one they pressed did not.
+    """
+    logger.warning('CSRF rejected on %s: %s', request.path, reason)
+    return render(request, 'scheduler/csrf_failure.html', {
+        # Whether they were trying to leave, which changes what to offer.
+        'was_signing_out': request.path == reverse('logout'),
+        'reason': reason,
+    }, status=403)

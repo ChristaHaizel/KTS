@@ -20,7 +20,7 @@ from django.template.loader import render_to_string
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from django.test.utils import CaptureQueriesContext
 
@@ -4075,6 +4075,111 @@ class MobileTableTests(TestCase):
         TimetableEntry.objects.all().delete()
         body = self.client.get('/timetable/').content.decode()
         self.assertIn('No classes.', body)
+
+
+class StaleFormTests(TestCase):
+    """Signing in rotates the CSRF token, which strands pages left open.
+
+    Reported from the live site: sitting on a page, pressing sign out, and
+    getting Django's wall of yellow. Nothing was broken - the token belongs to
+    the page, signing in replaces it, and a tab open from before carries one
+    the server has stopped accepting. Testing several accounts in turn, which
+    is how this system gets used, produces it readily.
+    """
+
+    PASSWORD = 'kumasi-testing-pass-1'
+    BROWSER = {'HTTP_ORIGIN': 'http://testserver',
+               'HTTP_REFERER': 'http://testserver/'}
+
+    def setUp(self):
+        self.admin = make_admin()
+        self.admin.set_password(self.PASSWORD)
+        self.admin.save()
+        # enforce_csrf_checks makes the client behave like the real middleware;
+        # without it none of this is exercised at all.
+        self.client = Client(enforce_csrf_checks=True)
+        self.client.force_login(self.admin)
+
+    def _first_token(self, body):
+        found = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', body)
+        self.assertIsNotNone(found, 'no csrf token on the page')
+        return found.group(1)
+
+    def _strand_a_page(self):
+        """Open a page, then sign in again so its token goes stale."""
+        stale = self._first_token(self.client.get('/').content.decode())
+        page = self.client.get('/office/login/').content.decode()
+        self.client.post('/office/login/',
+                         {'username': self.admin.username,
+                          'password': self.PASSWORD,
+                          'csrfmiddlewaretoken': self._first_token(page)},
+                         **self.BROWSER)
+        return stale
+
+    def test_a_normal_sign_out_still_works(self):
+        body = self.client.get('/').content.decode()
+        response = self.client.post(
+            '/logout/', {'csrfmiddlewaretoken': self._first_token(body)},
+            **self.BROWSER)
+        self.assertEqual(response.status_code, 302)
+
+    def test_a_stranded_page_gets_something_it_can_act_on(self):
+        stale = self._strand_a_page()
+        response = self.client.post(
+            '/logout/', {'csrfmiddlewaretoken': stale}, **self.BROWSER)
+
+        self.assertEqual(response.status_code, 403)
+        body = response.content.decode()
+        self.assertIn('That page was out of date', body)
+        self.assertNotIn('CSRF verification failed', body)
+
+    def test_it_says_they_are_still_signed_in(self):
+        """The sign out did not happen, and leaving that ambiguous is worse
+        than the error - somebody walks away from a session still open."""
+        stale = self._strand_a_page()
+        body = self.client.post('/logout/', {'csrfmiddlewaretoken': stale},
+                                **self.BROWSER).content.decode()
+        self.assertIn('still signed in', body)
+
+    def test_the_recovery_actually_signs_them_out(self):
+        """A fresh token is rendered on that page, so the button works where
+        the one they pressed did not. Without this the page is just a nicer
+        dead end."""
+        stale = self._strand_a_page()
+        body = self.client.post('/logout/', {'csrfmiddlewaretoken': stale},
+                                **self.BROWSER).content.decode()
+
+        response = self.client.post(
+            '/logout/', {'csrfmiddlewaretoken': self._first_token(body)},
+            **self.BROWSER)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_a_stale_form_that_is_not_a_sign_out_is_told_to_reload(self):
+        """Offering a sign-out button to somebody who was saving a record
+        would answer a question they did not ask."""
+        self.client.get('/')
+        response = self.client.post('/students/add/', {'name': 'Ama'},
+                                    **self.BROWSER)
+        self.assertEqual(response.status_code, 403)
+        body = response.content.decode()
+        self.assertIn('Nothing was saved', body)
+        self.assertNotIn('Sign out now', body)
+
+    def test_the_page_renders_without_the_authentication_middleware(self):
+        """CSRF is checked above authentication in the stack, so request.user
+        does not exist yet. A context processor reaching for it would raise
+        while rendering the error page - a 500 in place of the 403.
+        """
+        from django.template.loader import render_to_string
+        from django.test import RequestFactory
+
+        bare = RequestFactory().get('/')
+        self.assertFalse(hasattr(bare, 'user'))
+        # Renders at all, which is the whole assertion.
+        self.assertIn('out of date',
+                      render_to_string('scheduler/csrf_failure.html',
+                                       {'was_signing_out': True}, request=bare))
 
 
 class DarkModeTests(TestCase):

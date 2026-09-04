@@ -34,6 +34,8 @@
     </div>
 </div>
 
+
+
 <div class="row g-4">
     <div class="col-md-6">
         <div class="kts-card">
@@ -51,6 +53,14 @@
                 <div>
                     <div>View Conflict Report</div>
                     <div class="action-sub">{{ conflict_count }} active conflict(s)</div>
+                </div>
+                <i class="bi bi-arrow-right ms-auto"></i>
+            </a>
+            <a href="{% url 'conflicts' %}" class="action-btn">
+                <div class="action-icon danger"><i class="bi bi-x-octagon"></i></div>
+                <div>
+                    <div>Clashes</div>
+                    <div class="action-sub">Review timetable clashes</div>
                 </div>
                 <i class="bi bi-arrow-right ms-auto"></i>
             </a>

@@ -32,6 +32,13 @@
             <div class="stat-label">Active Conflicts</div>
         </div>
     </div>
+    <div class="col-6 col-md-3">
+        <a href="{% url 'conflicts' %}" class="stat-card text-decoration-none">
+            <div class="stat-icon red"><i class="bi bi-x-octagon"></i></div>
+            <div class="stat-number">{{ conflict_count }}</div>
+            <div class="stat-label">Clashes</div>
+        </a>
+    </div>
 </div>
 
 
